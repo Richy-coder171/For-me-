@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { BoardDetails } from './components/BoardDetails'
+import { BoardEditor } from './canvas/BoardEditor'
 import { Dashboard } from './components/Dashboard'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { useAppStore, type BoardSection } from './stores/appStore'
@@ -45,11 +45,11 @@ export default function App(): React.JSX.Element {
   if (store.currentBoard) {
     return (
       <>
-        <BoardDetails
+        <BoardEditor
+          key={store.currentBoard.board.id}
           stored={store.currentBoard}
-          saving={store.operation === 'saving-board'}
-          onBack={() => void store.closeBoard().catch(() => undefined)}
-          onSaveTitle={store.saveBoardTitle}
+          onBack={store.closeBoard}
+          onSave={store.saveBoard}
         />
         {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
       </>

@@ -41,7 +41,7 @@ interface AppState {
   createBoard: (title: string) => Promise<void>
   openBoard: (boardId: string) => Promise<void>
   closeBoard: () => Promise<void>
-  saveBoardTitle: (title: string) => Promise<void>
+  saveBoard: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
   toggleFavorite: (boardId: string, favorite: boolean) => Promise<void>
   trashBoard: (boardId: string) => Promise<void>
   restoreBoard: (boardId: string) => Promise<void>
@@ -185,14 +185,12 @@ export const useAppStore = create<AppState>((set, get) => {
       await get().refreshDashboard()
     },
 
-    saveBoardTitle: async (title) => {
-      const current = get().currentBoard
-      if (!current) return
+    saveBoard: async (board, expectedRevision) => {
       set({ operation: 'saving-board', error: null })
       try {
-        const board: BoardFile = { ...current.board, title: title.trim() }
-        const currentBoard = await window.canvasNote.boards.save(board, current.revision)
+        const currentBoard = await window.canvasNote.boards.save(board, expectedRevision)
         set({ currentBoard, operation: 'idle' })
+        return currentBoard
       } catch (error) {
         throw fail(error)
       }

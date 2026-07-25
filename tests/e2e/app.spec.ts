@@ -25,6 +25,12 @@ test.beforeAll(async () => {
     env: environment
   })
   page = await application.firstWindow()
+  page.on('pageerror', (error) =>
+    process.stderr.write(`[renderer] ${error.stack ?? error.message}\n`)
+  )
+  page.on('console', (message) => {
+    if (message.type() === 'error') process.stderr.write(`[renderer console] ${message.text()}\n`)
+  })
 })
 
 test.afterAll(async () => {
@@ -52,7 +58,7 @@ test('launches the isolated welcome screen', async () => {
   })
 })
 
-test('creates, edits, trashes, restores, and reopens a local board', async () => {
+test('creates, edits, persists, trashes, restores, and reopens a local board', async () => {
   await application.evaluate(({ dialog }, workspaceParent) => {
     Object.defineProperty(dialog, 'showOpenDialog', {
       configurable: true,
@@ -67,11 +73,22 @@ test('creates, edits, trashes, restores, and reopens a local board', async () =>
   await page.getByRole('button', { name: 'New board' }).click()
   await page.getByPlaceholder('Board title').fill('Video research')
   await page.locator('form').getByRole('button', { name: 'Create board', exact: true }).click()
-  await expect(page.getByText('This board is empty')).toBeVisible()
+  await expect(page.getByTestId('canvas-editor')).toBeVisible()
+
+  await page.getByRole('button', { name: 'New note' }).click()
+  await page.getByLabel('Note title').fill('Opening idea')
+  await page.getByLabel('Note content').fill('Start with the key question.')
+
+  await page.getByRole('button', { name: 'New checklist' }).click()
+  await page.getByLabel('Checklist title').fill('Review steps')
+  await page.getByRole('button', { name: 'Add item' }).click()
+  await page.getByLabel('Checklist item').fill('Watch the source')
 
   const title = page.getByLabel('Board title')
   await title.fill('Edited video research')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+  await expect(page.getByText('Saved locally')).toBeVisible()
+  await page.getByRole('button', { name: 'Save board' }).click()
   await page.getByRole('button', { name: 'Back to boards' }).click()
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
 
@@ -85,6 +102,12 @@ test('creates, edits, trashes, restores, and reopens a local board', async () =>
   await expect(page.getByRole('heading', { name: /ideas make more sense/i })).toBeVisible()
   await page.getByRole('button', { name: /E2E Workspace/ }).click()
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Open Edited video research' }).click()
+  await expect(page.getByText('Opening idea')).toBeVisible()
+  await expect(page.getByText('Start with the key question.')).toBeVisible()
+  await expect(page.getByText('Review steps')).toBeVisible()
+  await expect(page.getByText('Watch the source')).toBeVisible()
 
   const manifest = JSON.parse(
     await readFile(path.join(testRoot, 'E2E Workspace', 'workspace.json'), 'utf8')

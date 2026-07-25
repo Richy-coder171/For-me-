@@ -81,7 +81,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -154,6 +156,321 @@ button:not(:disabled) {
     transparent 1px
   );
   background-size: 22px 22px;
+}
+
+.canvas-header {
+  display: flex;
+  height: 4rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.7rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0 1rem;
+}
+
+.canvas-title-input {
+  width: 100%;
+  max-width: 34rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  padding: 0.55rem 0.65rem;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 650;
+  outline: 0;
+}
+
+.canvas-title-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 72%);
+}
+
+.canvas-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.canvas-save-status.is-saved {
+  color: #448157;
+}
+
+.canvas-save-status.is-error {
+  color: var(--danger);
+}
+
+.canvas-toolbar {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--surface), transparent 4%);
+  padding: 0.35rem;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
+}
+
+.canvas-tool {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--muted);
+}
+
+.canvas-tool:hover:not(:disabled) {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.canvas-tool.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.canvas-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.canvas-tool:disabled {
+  opacity: 0.32;
+}
+
+.canvas-tool-divider {
+  height: 1px;
+  margin: 0.15rem 0.3rem;
+  background: var(--line);
+}
+
+.canvas-zoom {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--surface), transparent 4%);
+  box-shadow: var(--shadow-card);
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.canvas-zoom button {
+  display: grid;
+  min-width: 2.2rem;
+  height: 2.2rem;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.canvas-zoom button:nth-child(2) {
+  min-width: 3.4rem;
+}
+
+.canvas-zoom button:last-child {
+  border-right: 0;
+}
+
+.canvas-zoom button:hover {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.canvas-notice {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 310;
+  max-width: 24rem;
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 70%);
+  border-radius: 0.65rem;
+  background: var(--surface);
+  padding: 0.7rem 0.9rem;
+  color: var(--danger);
+  font-size: 0.7rem;
+  box-shadow: var(--shadow-card);
+}
+
+.canvas-properties {
+  z-index: 350;
+  display: flex;
+  width: 17.5rem;
+  flex-shrink: 0;
+  flex-direction: column;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.canvas-panel-close {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--muted);
+}
+
+.canvas-panel-close:hover {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.canvas-properties-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.canvas-property-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.canvas-property-group input[type='text'],
+.canvas-property-group select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.55rem 0.65rem;
+  color: var(--ink);
+  font-size: 0.75rem;
+  outline: 0;
+}
+
+.canvas-property-group input[type='color'] {
+  width: 100%;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.2rem;
+}
+
+.canvas-property-group input:focus,
+.canvas-property-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
+}
+
+.canvas-color-chip {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid rgb(17 24 39 / 14%);
+  border-radius: 999px;
+}
+
+.canvas-color-chip.is-active {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--accent);
+}
+
+.canvas-segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.canvas-segmented-control button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--canvas);
+  padding: 0.5rem 0.25rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  text-transform: capitalize;
+}
+
+.canvas-segmented-control button:last-child {
+  border-right: 0;
+}
+
+.canvas-segmented-control button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.canvas-property-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.canvas-property-actions button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.55rem 0.45rem;
+  color: var(--muted);
+  font-size: 0.67rem;
+}
+
+.canvas-property-actions button:hover {
+  border-color: color-mix(in srgb, var(--accent), transparent 58%);
+  color: var(--ink);
+}
+
+.canvas-property-actions button.is-danger {
+  grid-column: 1 / -1;
+  color: var(--danger);
+}
+
+@media (max-width: 760px) {
+  .canvas-header {
+    gap: 0.4rem;
+    padding: 0 0.65rem;
+  }
+
+  .canvas-properties {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(17.5rem, calc(100vw - 4rem));
+    box-shadow: var(--shadow-panel);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
