@@ -65,6 +65,7 @@ function dashboardProps(overrides: Partial<DashboardProps> = {}): DashboardProps
     onQueryChange: vi.fn(),
     onCreateBoard: vi.fn(),
     onCreateTemplate: vi.fn(),
+    onImportBoard: vi.fn(),
     onOpenBoard: vi.fn(),
     onToggleFavorite: vi.fn(),
     onTrashBoard: vi.fn(),

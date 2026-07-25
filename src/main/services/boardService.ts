@@ -184,6 +184,24 @@ export class BoardService {
     return this.save(createBoardFromTemplate(`board-${randomUUID()}`, templateId))
   }
 
+  async importFile(sourcePath: string): Promise<StoredBoard> {
+    if (!sourcePath.trim()) throw new Error('Choose a CanvasNote board to import.')
+    const data = await readLimitedFile(path.resolve(sourcePath))
+    let imported: BoardFile
+    try {
+      imported = boardFileSchema.parse(JSON.parse(utf8Decoder.decode(data)))
+    } catch (error) {
+      throw new Error('The selected file is not a supported CanvasNote board.', { cause: error })
+    }
+    const timestamp = new Date().toISOString()
+    return this.save({
+      ...imported,
+      id: `board-${randomUUID()}`,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    })
+  }
+
   async read(id: string): Promise<StoredBoard> {
     const safeId = validateBoardId(id)
     return this.#serialize(safeId, () =>

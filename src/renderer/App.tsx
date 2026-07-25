@@ -75,6 +75,7 @@ export default function App(): React.JSX.Element {
           onQueryChange={store.setBoardQuery}
           onCreateBoard={store.createBoard}
           onCreateTemplate={store.createBoardFromTemplate}
+          onImportBoard={store.importBoard}
           onOpenBoard={(boardId) => void store.openBoard(boardId).catch(() => undefined)}
           onToggleFavorite={(boardId, favorite) =>
             void store.toggleFavorite(boardId, favorite).catch(() => undefined)
@@ -90,5 +91,11 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  return <WelcomeScreen dark={dark} onToggleTheme={() => setDark((value) => !value)} />
+  return (
+    <WelcomeScreen
+      dark={dark}
+      onToggleTheme={() => setDark((value) => !value)}
+      onImportBoard={() => void store.importBoard().catch(() => undefined)}
+    />
+  )
 }

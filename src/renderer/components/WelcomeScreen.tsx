@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, FolderOpen, LoaderCircle, Moon, Plus, Sun } from 'lucide-react'
+import { ArrowRight, FileInput, FolderOpen, LoaderCircle, Moon, Plus, Sun } from 'lucide-react'
 
 import { useAppStore } from '../stores/appStore'
 import { BrandMark } from './BrandMark'
@@ -7,9 +7,14 @@ import { BrandMark } from './BrandMark'
 interface WelcomeScreenProps {
   dark: boolean
   onToggleTheme: () => void
+  onImportBoard: () => void
 }
 
-export function WelcomeScreen({ dark, onToggleTheme }: WelcomeScreenProps): React.JSX.Element {
+export function WelcomeScreen({
+  dark,
+  onToggleTheme,
+  onImportBoard
+}: WelcomeScreenProps): React.JSX.Element {
   const [name, setName] = useState('My CanvasNote Workspace')
   const {
     appInfo,
@@ -91,6 +96,15 @@ export function WelcomeScreen({ dark, onToggleTheme }: WelcomeScreenProps): Reac
           >
             <FolderOpen size={16} />
             Open an existing workspace
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onImportBoard}
+            className="mt-1 flex w-fit items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-muted transition hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
+          >
+            <FileInput size={16} />
+            Import a board into a workspace
           </button>
 
           {error && (

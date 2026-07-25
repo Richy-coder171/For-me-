@@ -38,3 +38,6 @@ All notable CanvasNote changes are documented here.
 - Rebuildable SQLite full-text indexing for board titles, notes, checklists, tags, files, links, and media captions, with content-aware dashboard filtering.
 - Keyboard-navigable in-board search with object/tag filters, highlighted matches, and select-and-zoom focus via `Ctrl/Cmd+K`.
 - Six editable starter templates for video research, study, moodboards, project planning, content planning, and learning roadmaps.
+- Validated `.canvasnote` import from the welcome screen or dashboard with fresh collision-safe board IDs and safe rejection of unsupported versions.
+- Atomic JSON export plus rendered PNG/PDF export of the whole board or selected objects through native save dialogs.
+- Byte-level export service coverage and built-Electron coverage for the complete import and export user interface.

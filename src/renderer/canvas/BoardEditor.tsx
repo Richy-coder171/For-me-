@@ -4,6 +4,7 @@ import {
   Check,
   Clock3,
   Copy,
+  Download,
   Frame,
   Group,
   Hand,
@@ -262,6 +263,9 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
   const [embedUrl, setEmbedUrl] = useState('')
   const [embedError, setEmbedError] = useState<string | null>(null)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [exportScope, setExportScope] = useState<'all' | 'selection'>('all')
+  const [exporting, setExporting] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchType, setSearchType] = useState<BoardSearchType>('all')
@@ -729,6 +733,87 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     void saveQueue.flush().catch(() => undefined)
   }
 
+  const exportJson = async (): Promise<void> => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await saveQueue.flush()
+      const saved = await window.canvasNote.export.json(boardRef.current)
+      if (saved) setNotice('Board JSON exported.')
+      setExportDialogOpen(false)
+    } catch {
+      setNotice('CanvasNote could not export this board as JSON.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const exportVisual = async (format: 'png' | 'pdf'): Promise<void> => {
+    if (!editor || exporting) return
+    const previousCamera = editor.getCamera()
+    const previousSelection = editor.getSelectedShapeIds()
+    const exportIds =
+      exportScope === 'selection' ? previousSelection : [...editor.getCurrentPageShapeIds()]
+    if (exportIds.length === 0) {
+      setNotice(
+        exportScope === 'selection' ? 'Select at least one object to export.' : 'The board is empty.'
+      )
+      return
+    }
+
+    setExporting(true)
+    try {
+      if (exportScope === 'selection') editor.select(...exportIds).zoomToSelection()
+      else editor.zoomToFit()
+      await new Promise((resolve) => setTimeout(resolve, 180))
+
+      const canvas = document.querySelector<HTMLElement>('[data-testid="canvas-editor"]')
+      if (!canvas) throw new Error('Canvas element is unavailable.')
+      const canvasRect = canvas.getBoundingClientRect()
+      let left = canvasRect.left
+      let top = canvasRect.top
+      let right = canvasRect.right
+      let bottom = canvasRect.bottom
+
+      if (exportScope === 'selection') {
+        const bounds = editor.getSelectionPageBounds()
+        if (!bounds) throw new Error('Selection bounds are unavailable.')
+        const start = editor.pageToViewport({ x: bounds.x, y: bounds.y })
+        const end = editor.pageToViewport({ x: bounds.maxX, y: bounds.maxY })
+        const padding = 18
+        left = Math.max(canvasRect.left, canvasRect.left + start.x - padding)
+        top = Math.max(canvasRect.top, canvasRect.top + start.y - padding)
+        right = Math.min(canvasRect.right, canvasRect.left + end.x + padding)
+        bottom = Math.min(canvasRect.bottom, canvasRect.top + end.y + padding)
+      }
+
+      editor.selectNone()
+      document.documentElement.classList.add('canvas-exporting')
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      )
+      const saved = await window.canvasNote.export.canvas({
+        format,
+        title: titleRef.current.trim() || boardRef.current.title,
+        rect: {
+          x: Math.max(0, Math.floor(left)),
+          y: Math.max(0, Math.floor(top)),
+          width: Math.max(1, Math.ceil(right - left)),
+          height: Math.max(1, Math.ceil(bottom - top))
+        }
+      })
+      if (saved) setNotice(`${format.toUpperCase()} exported.`)
+      setExportDialogOpen(false)
+    } catch {
+      setNotice(`CanvasNote could not export this board as ${format.toUpperCase()}.`)
+    } finally {
+      document.documentElement.classList.remove('canvas-exporting')
+      editor.setCamera(previousCamera, { immediate: true })
+      if (previousSelection.length > 0) editor.select(...previousSelection)
+      setExporting(false)
+    }
+  }
+
   const licenseKey = import.meta.env.VITE_TLDRAW_LICENSE_KEY?.trim()
 
   return (
@@ -788,6 +873,15 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           onClick={openSearch}
         >
           <Search size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Export board"
+          title="Export board"
+          onClick={() => setExportDialogOpen(true)}
+        >
+          <Download size={16} />
         </button>
         <button
           type="button"
@@ -1314,6 +1408,72 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           </aside>
         )}
       </section>
+
+      {exportDialogOpen && (
+        <div className="canvas-dialog-backdrop">
+          <section
+            className="canvas-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-board-title"
+          >
+            <div className="canvas-dialog-header">
+              <div>
+                <p>Portable output</p>
+                <h2 id="export-board-title">Export board</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close export dialog"
+                disabled={exporting}
+                onClick={() => setExportDialogOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <label>
+              <span>PNG / PDF area</span>
+              <select
+                value={exportScope}
+                disabled={exporting}
+                onChange={(event) =>
+                  setExportScope(event.target.value as 'all' | 'selection')
+                }
+              >
+                <option value="all">Whole board</option>
+                <option value="selection">Selected objects</option>
+              </select>
+            </label>
+            <div className="canvas-export-options">
+              <button type="button" disabled={exporting} onClick={() => void exportJson()}>
+                <strong>JSON</strong>
+                <span>Editable .canvasnote data</span>
+              </button>
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void exportVisual('png')}
+              >
+                <strong>PNG</strong>
+                <span>Rendered board image</span>
+              </button>
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void exportVisual('pdf')}
+              >
+                <strong>PDF</strong>
+                <span>Printable board document</span>
+              </button>
+            </div>
+            {exporting && (
+              <p className="canvas-export-status" role="status">
+                <LoaderCircle className="animate-spin" size={14} /> Preparing export…
+              </p>
+            )}
+          </section>
+        </div>
+      )}
 
       {searchOpen && (
         <div className="canvas-dialog-backdrop">

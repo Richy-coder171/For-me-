@@ -546,7 +546,8 @@ button:not(:disabled) {
   font-weight: 650;
 }
 
-.canvas-dialog input {
+.canvas-dialog input,
+.canvas-dialog select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0.55rem;
@@ -556,7 +557,8 @@ button:not(:disabled) {
   outline: 0;
 }
 
-.canvas-dialog input:focus {
+.canvas-dialog input:focus,
+.canvas-dialog select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
 }
@@ -688,6 +690,62 @@ button:not(:disabled) {
 .canvas-search-hint {
   margin-top: 0.55rem;
   text-align: right;
+}
+
+.canvas-export-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.canvas-export-options button {
+  display: flex;
+  min-height: 5.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--canvas);
+  padding: 0.75rem;
+  color: var(--ink);
+  text-align: left;
+}
+
+.canvas-export-options button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.canvas-export-options button:disabled {
+  opacity: 0.5;
+}
+
+.canvas-export-options strong {
+  color: var(--accent);
+  font-size: 0.78rem;
+}
+
+.canvas-export-options span {
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+.canvas-export-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.canvas-exporting .canvas-toolbar,
+.canvas-exporting .canvas-zoom,
+.canvas-exporting .canvas-notice {
+  visibility: hidden;
 }
 
 @media (max-width: 760px) {

@@ -80,6 +80,27 @@ describe('BoardService', () => {
     expect(await service.list()).toEqual([created])
   })
 
+  it('imports a validated board with a collision-safe fresh ID', async () => {
+    const original = await service.create('Portable board')
+    const sourcePath = path.join(workspaceRoot, 'portable.canvasnote')
+    await writeFile(sourcePath, `${JSON.stringify(original.board, null, 2)}\n`, 'utf8')
+
+    const imported = await service.importFile(sourcePath)
+
+    expect(imported.board.id).not.toBe(original.board.id)
+    expect(imported.board.title).toBe('Portable board')
+    expect(await service.list()).toHaveLength(2)
+    expect(JSON.parse(await readFile(boardPath(imported), 'utf8')).id).toBe(imported.board.id)
+  })
+
+  it('rejects invalid and future board imports without writing a board', async () => {
+    const sourcePath = path.join(workspaceRoot, 'unsupported.canvasnote')
+    await writeFile(sourcePath, JSON.stringify({ format: 'canvasnote-board', version: 2 }), 'utf8')
+
+    await expect(service.importFile(sourcePath)).rejects.toThrow('not a supported CanvasNote board')
+    expect(await service.list()).toEqual([])
+  })
+
   it('keeps only the five most recent pre-save backups', async () => {
     let stored = await service.create('Initial')
     for (let version = 1; version <= 6; version += 1) {

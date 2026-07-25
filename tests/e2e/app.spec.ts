@@ -95,7 +95,7 @@ test('launches the isolated welcome screen', async () => {
   expect(security).toEqual({
     nodeProcess: 'undefined',
     nodeRequire: 'undefined',
-    bridgeDomains: ['app', 'boards', 'media', 'workspace']
+    bridgeDomains: ['app', 'boards', 'export', 'media', 'workspace']
   })
 })
 
@@ -252,6 +252,13 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
     page.locator('iframe[src^="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"]')
   ).toHaveCount(1)
 
+  await page.getByRole('button', { name: 'Export board' }).click()
+  await expect(page.getByRole('dialog', { name: 'Export board' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^JSON/ })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^PNG/ })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^PDF/ })).toBeEnabled()
+  await page.getByRole('button', { name: 'Close export dialog' }).click()
+
   const manifest = JSON.parse(
     await readFile(path.join(testRoot, 'E2E Workspace', 'workspace.json'), 'utf8')
   ) as { format: string }
@@ -285,9 +292,22 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
   await page.getByRole('button', { name: 'Clear board search' }).click()
 
+  const boardFiles = await readdir(path.join(testRoot, 'E2E Workspace', 'boards'))
+  const importSource = path.join(testRoot, 'E2E Workspace', 'boards', boardFiles[0]!)
+  await application.evaluate(({ dialog }, source) => {
+    Object.defineProperty(dialog, 'showOpenDialog', {
+      configurable: true,
+      value: async () => ({ canceled: false, filePaths: [source] })
+    })
+  }, importSource)
+  await page.getByRole('button', { name: 'Import board' }).click()
+  await expect(page.getByLabel('Board title')).toHaveValue('Edited video research')
+  await page.getByRole('button', { name: 'Back to boards' }).click()
+
   await page.getByRole('button', { name: /^Templates/ }).click()
   await page.getByRole('button', { name: /Video research.*Capture questions/i }).click()
   await page.getByRole('button', { name: 'Zoom to fit' }).click()
   await expect(page.getByText('Research question')).toBeVisible()
   await expect(page.getByText('What do I want to learn?')).toBeVisible()
+
 })

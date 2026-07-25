@@ -6,6 +6,7 @@ import type {
   WorkspaceStats
 } from './schemas/board'
 import type { ImportedMedia, MediaKind } from './schemas/media'
+import type { ExportCanvasRequest } from './schemas/export'
 import type { WorkspaceSummary } from './schemas/workspace'
 import type { TemplateId } from './templates'
 
@@ -20,6 +21,7 @@ export const IPC_CHANNELS = {
   boardList: 'board:list',
   boardCreate: 'board:create',
   boardCreateFromTemplate: 'board:create-from-template',
+  boardImport: 'board:import',
   boardOpen: 'board:open',
   boardSave: 'board:save',
   boardFavorite: 'board:favorite',
@@ -29,7 +31,9 @@ export const IPC_CHANNELS = {
   mediaImport: 'media:import',
   mediaExists: 'media:exists',
   mediaOpen: 'media:open',
-  mediaReveal: 'media:reveal'
+  mediaReveal: 'media:reveal',
+  exportJson: 'export:json',
+  exportCanvas: 'export:canvas'
 } as const
 
 export interface AppInfo {
@@ -53,6 +57,7 @@ export interface CanvasNoteApi {
     list: (request: BoardListRequest) => Promise<BoardSummary[]>
     create: (title: string) => Promise<OpenBoard>
     createFromTemplate: (templateId: TemplateId) => Promise<OpenBoard>
+    importFile: () => Promise<OpenBoard | null>
     open: (boardId: string) => Promise<OpenBoard>
     save: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
     favorite: (boardId: string, favorite: boolean) => Promise<void>
@@ -66,5 +71,9 @@ export interface CanvasNoteApi {
     exists: (relativePath: string) => Promise<boolean>
     open: (relativePath: string) => Promise<void>
     reveal: (relativePath: string) => Promise<void>
+  }
+  export: {
+    json: (board: BoardFile) => Promise<boolean>
+    canvas: (request: ExportCanvasRequest) => Promise<boolean>
   }
 }

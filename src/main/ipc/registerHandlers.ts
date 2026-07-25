@@ -7,15 +7,18 @@ import {
   boardIdRequestSchema,
   boardListRequestSchema,
   boardSaveRequestSchema,
+  boardFileSchema,
   type BoardFile,
   type BoardSummary
 } from '../../shared/schemas/board'
 import { stableIdSchema } from '../../shared/schemas/common'
 import { mediaImportRequestSchema, mediaPathRequestSchema } from '../../shared/schemas/media'
 import { createWorkspaceRequestSchema } from '../../shared/schemas/workspace'
+import { exportCanvasRequestSchema } from '../../shared/schemas/export'
 import { templateIdSchema } from '../../shared/templates'
 import { BoardService, type StoredBoard } from '../services/boardService'
 import { DatabaseService, type BoardMetadata } from '../services/databaseService'
+import type { ExportService } from '../services/exportService'
 import type { MediaService } from '../services/mediaService'
 import type { WorkspaceService } from '../services/workspaceService'
 
@@ -59,7 +62,8 @@ function metadataFor(
 export function registerHandlers(
   workspaces: WorkspaceService,
   database: DatabaseService,
-  media: MediaService
+  media: MediaService,
+  exports: ExportService
 ): () => void {
   let boards: BoardService | null = null
 
@@ -166,6 +170,19 @@ export function registerHandlers(
     indexBoard(stored, new Date().toISOString())
     return stored
   })
+  ipcMain.handle(IPC_CHANNELS.boardImport, async (event) => {
+    const window = senderWindow(event)
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Import CanvasNote board',
+      properties: ['openFile'],
+      filters: [{ name: 'CanvasNote board', extensions: ['canvasnote'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const stored = await requireBoards().importFile(result.filePaths[0])
+    indexBoard(stored, new Date().toISOString())
+    return stored
+  })
   ipcMain.handle(IPC_CHANNELS.boardOpen, async (event, input: unknown) => {
     senderWindow(event)
     const { boardId } = boardIdRequestSchema.parse(input)
@@ -229,6 +246,15 @@ export function registerHandlers(
     senderWindow(event)
     const { relativePath } = mediaPathRequestSchema.parse(input)
     return media.reveal(relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.exportJson, (event, input: unknown) => {
+    const window = senderWindow(event)
+    return exports.saveJson(window, boardFileSchema.parse(input))
+  })
+  ipcMain.handle(IPC_CHANNELS.exportCanvas, (event, input: unknown) => {
+    const window = senderWindow(event)
+    return exports.saveCanvas(window, exportCanvasRequestSchema.parse(input))
   })
 
   return () => {

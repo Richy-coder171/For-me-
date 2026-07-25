@@ -5,6 +5,7 @@ import {
   Clock3,
   Grid2X2,
   HardDrive,
+  FileInput,
   LayoutGrid,
   LayoutTemplate,
   List,
@@ -51,6 +52,7 @@ export interface DashboardProps {
   onQueryChange: (query: string) => void
   onCreateBoard: (title: string) => void | Promise<void>
   onCreateTemplate: (templateId: TemplateId) => void | Promise<void>
+  onImportBoard: () => void | Promise<void>
   onOpenBoard: (boardId: string) => void
   onToggleFavorite: (boardId: string, favorite: boolean) => void
   onTrashBoard: (boardId: string) => void
@@ -303,6 +305,7 @@ export function Dashboard({
   onQueryChange,
   onCreateBoard,
   onCreateTemplate,
+  onImportBoard,
   onOpenBoard,
   onToggleFavorite,
   onTrashBoard,
@@ -586,6 +589,16 @@ export function Dashboard({
                   <button type="button" className="primary-button" onClick={openCreateForm}>
                     <Plus size={16} />
                     New board
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Import board"
+                    title="Import .canvasnote board"
+                    disabled={busy}
+                    onClick={() => void onImportBoard()}
+                  >
+                    <FileInput size={16} />
                   </button>
                 </div>
                 </div>

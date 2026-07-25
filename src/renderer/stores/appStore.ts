@@ -13,6 +13,7 @@ type Operation =
   | 'loading-boards'
   | 'creating-board'
   | 'opening-board'
+  | 'importing-board'
   | 'saving-board'
 
 export type BoardSection = 'recent' | 'all' | 'favorites' | 'templates' | 'trash'
@@ -41,6 +42,7 @@ interface AppState {
   setBoardQuery: (query: string) => void
   createBoard: (title: string) => Promise<void>
   createBoardFromTemplate: (templateId: TemplateId) => Promise<void>
+  importBoard: () => Promise<void>
   openBoard: (boardId: string) => Promise<void>
   closeBoard: () => Promise<void>
   saveBoard: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
@@ -177,6 +179,25 @@ export const useAppStore = create<AppState>((set, get) => {
       try {
         const currentBoard = await window.canvasNote.boards.createFromTemplate(templateId)
         set({ currentBoard, operation: 'idle' })
+      } catch (error) {
+        throw fail(error)
+      }
+    },
+
+    importBoard: async () => {
+      set({ operation: 'importing-board', error: null })
+      try {
+        if (!get().currentWorkspace) {
+          const workspace = await window.canvasNote.workspace.open()
+          if (!workspace) {
+            set({ operation: 'idle' })
+            return
+          }
+          set({ currentWorkspace: workspace, currentBoard: null })
+        }
+        const currentBoard = await window.canvasNote.boards.importFile()
+        if (currentBoard) set({ currentBoard, operation: 'idle' })
+        else await get().refreshDashboard()
       } catch (error) {
         throw fail(error)
       }

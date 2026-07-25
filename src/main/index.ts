@@ -10,12 +10,14 @@ import { parseByteRange } from './security/byteRange'
 import { isCanvasNoteDocumentResponse } from './security/contentSecurityPolicy'
 import { DatabaseService } from './services/databaseService'
 import { MediaService, mediaMimeType } from './services/mediaService'
+import { ExportService } from './services/exportService'
 import { WorkspaceService } from './services/workspaceService'
 
 let mainWindow: BrowserWindow | null = null
 const workspaces = new WorkspaceService()
 const database = new DatabaseService()
 const media = new MediaService(() => workspaces.activeRoot)
+const exports = new ExportService()
 let disposeHandlers: (() => void) | null = null
 
 protocol.registerSchemesAsPrivileged([
@@ -164,7 +166,7 @@ app.whenReady().then(() => {
     }
   })
 
-  disposeHandlers = registerHandlers(workspaces, database, media)
+  disposeHandlers = registerHandlers(workspaces, database, media, exports)
   createWindow()
 
   app.on('activate', () => {

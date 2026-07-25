@@ -11,6 +11,7 @@ import type {
 import type { ImportedMedia, MediaKind } from '../shared/schemas/media'
 import type { WorkspaceSummary } from '../shared/schemas/workspace'
 import type { TemplateId } from '../shared/templates'
+import type { ExportCanvasRequest } from '../shared/schemas/export'
 
 function workspaceName(value: string): string {
   const name = value.trim()
@@ -120,6 +121,7 @@ const api: CanvasNoteApi = {
         IPC_CHANNELS.boardCreateFromTemplate,
         boardTemplateId(templateId)
       ) as Promise<OpenBoard>,
+    importFile: () => ipcRenderer.invoke(IPC_CHANNELS.boardImport) as Promise<OpenBoard | null>,
     open: (boardId) =>
       ipcRenderer.invoke(IPC_CHANNELS.boardOpen, {
         boardId: stableId(boardId)
@@ -165,6 +167,11 @@ const api: CanvasNoteApi = {
       ipcRenderer.invoke(IPC_CHANNELS.mediaReveal, {
         relativePath: mediaPath(relativePath)
       }) as Promise<void>
+  },
+  export: {
+    json: (board) => ipcRenderer.invoke(IPC_CHANNELS.exportJson, board) as Promise<boolean>,
+    canvas: (request: ExportCanvasRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.exportCanvas, request) as Promise<boolean>
   }
 }
 
