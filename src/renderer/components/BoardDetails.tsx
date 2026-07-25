@@ -22,9 +22,13 @@ export function BoardDetails({
 
   async function save(): Promise<void> {
     if (!title.trim() || title.trim() === stored.board.title || saving) return
-    await onSaveTitle(title)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1400)
+    try {
+      await onSaveTitle(title)
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 1400)
+    } catch {
+      setSaved(false)
+    }
   }
 
   return (

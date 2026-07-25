@@ -46,7 +46,7 @@ export interface CanvasNoteApi {
     list: (request: BoardListRequest) => Promise<BoardSummary[]>
     create: (title: string) => Promise<OpenBoard>
     open: (boardId: string) => Promise<OpenBoard>
-    save: (board: BoardFile, expectedRevision?: string) => Promise<OpenBoard>
+    save: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
     favorite: (boardId: string, favorite: boolean) => Promise<void>
     trash: (boardId: string) => Promise<void>
     restore: (boardId: string) => Promise<void>

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, lstat, open, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { mkdir, lstat, open, readdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { TextDecoder } from 'node:util'
 
@@ -27,7 +27,7 @@ export class BoardConflictError extends Error {
 
   constructor(
     readonly boardId: string,
-    readonly expectedRevision: string,
+    readonly expectedRevision: string | null,
     readonly actualRevision: string | null
   ) {
     super(`Board ${boardId} changed outside this session.`)
@@ -56,13 +56,31 @@ function revisionOf(data: Uint8Array): string {
 }
 
 async function readLimitedFile(filePath: string): Promise<Buffer> {
-  const details = await lstat(filePath)
-  if (!details.isFile()) throw new Error('Board path is not a regular file.')
-  if (details.size > MAX_BOARD_FILE_BYTES) throw new Error('Board file is too large.')
+  const pathDetails = await lstat(filePath)
+  if (!pathDetails.isFile()) throw new Error('Board path is not a regular file.')
 
-  const data = await readFile(filePath)
-  if (data.byteLength > MAX_BOARD_FILE_BYTES) throw new Error('Board file is too large.')
-  return data
+  const handle = await open(filePath, 'r')
+  try {
+    const details = await handle.stat()
+    if (!details.isFile() || details.dev !== pathDetails.dev || details.ino !== pathDetails.ino) {
+      throw new Error('Board file changed while it was being opened.')
+    }
+    if (details.size > MAX_BOARD_FILE_BYTES) throw new Error('Board file is too large.')
+
+    const chunks: Buffer[] = []
+    let total = 0
+    while (total <= MAX_BOARD_FILE_BYTES) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_BOARD_FILE_BYTES + 1 - total))
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null)
+      if (bytesRead === 0) break
+      chunks.push(chunk.subarray(0, bytesRead))
+      total += bytesRead
+    }
+    if (total > MAX_BOARD_FILE_BYTES) throw new Error('Board file is too large.')
+    return Buffer.concat(chunks, total)
+  } finally {
+    await handle.close()
+  }
 }
 
 async function writeAndSync(filePath: string, data: Uint8Array): Promise<void> {
@@ -75,24 +93,14 @@ async function writeAndSync(filePath: string, data: Uint8Array): Promise<void> {
   }
 }
 
-async function replaceTemporaryFile(temporaryPath: string, destinationPath: string): Promise<void> {
+async function syncDirectory(directoryPath: string): Promise<void> {
+  if (process.platform === 'win32') return
+  const handle = await open(directoryPath, 'r')
   try {
-    await rename(temporaryPath, destinationPath)
-    return
-  } catch (error) {
-    if (process.platform !== 'win32' || !hasCode(error, 'EEXIST', 'EPERM', 'EACCES')) throw error
+    await handle.sync()
+  } finally {
+    await handle.close()
   }
-
-  // Windows can refuse an overwrite rename. Preserve the old file until the new one is in place.
-  const displacedPath = `${destinationPath}.${randomUUID()}.old`
-  await rename(destinationPath, displacedPath)
-  try {
-    await rename(temporaryPath, destinationPath)
-  } catch (error) {
-    await rename(displacedPath, destinationPath).catch(() => undefined)
-    throw error
-  }
-  await rm(displacedPath, { force: true })
 }
 
 async function writeAtomically(destinationPath: string, data: Uint8Array): Promise<void> {
@@ -102,7 +110,8 @@ async function writeAtomically(destinationPath: string, data: Uint8Array): Promi
   )
   try {
     await writeAndSync(temporaryPath, data)
-    await replaceTemporaryFile(temporaryPath, destinationPath)
+    await rename(temporaryPath, destinationPath)
+    await syncDirectory(path.dirname(destinationPath))
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     throw error
@@ -126,6 +135,7 @@ async function rotateBackup(backupDirectory: string, data: Uint8Array): Promise<
       }
     }
     await rename(temporaryPath, path.join(backupDirectory, `1${BOARD_EXTENSION}`))
+    await syncDirectory(backupDirectory)
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     throw error
@@ -160,7 +170,8 @@ export class BoardService {
       }
     }
 
-    const boards = await Promise.all(ids.map((id) => this.read(id)))
+    const reads = await Promise.allSettled(ids.map((id) => this.read(id)))
+    const boards = reads.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
     return boards.sort((left, right) => right.board.updatedAt.localeCompare(left.board.updatedAt))
   }
 
@@ -196,6 +207,9 @@ export class BoardService {
       }
 
       const actualRevision = currentData === null ? null : revisionOf(currentData)
+      if (currentData !== null && expectedRevision === undefined) {
+        throw new BoardConflictError(id, null, actualRevision)
+      }
       if (expectedRevision !== undefined && expectedRevision !== actualRevision) {
         throw new BoardConflictError(id, expectedRevision, actualRevision)
       }
@@ -285,15 +299,16 @@ export class BoardService {
   }
 
   #serialize<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.#queues.get(id) ?? Promise.resolve()
+    const queueId = process.platform === 'win32' ? id.toLowerCase() : id
+    const previous = this.#queues.get(queueId) ?? Promise.resolve()
     const result = previous.then(operation)
     const tail = result.then(
       () => undefined,
       () => undefined
     )
-    this.#queues.set(id, tail)
+    this.#queues.set(queueId, tail)
     return result.finally(() => {
-      if (this.#queues.get(id) === tail) this.#queues.delete(id)
+      if (this.#queues.get(queueId) === tail) this.#queues.delete(queueId)
     })
   }
 }

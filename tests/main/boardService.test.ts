@@ -64,6 +64,22 @@ describe('BoardService', () => {
     expect(JSON.parse(await readFile(filePath, 'utf8')).title).toBe('External edit')
   })
 
+  it('requires a revision before replacing an existing board', async () => {
+    const created = await service.create('Original')
+
+    await expect(
+      service.save({ ...created.board, title: 'Unversioned edit' })
+    ).rejects.toBeInstanceOf(BoardConflictError)
+    expect((await service.read(created.board.id)).board.title).toBe('Original')
+  })
+
+  it('lists healthy boards when another board file is corrupt', async () => {
+    const created = await service.create('Healthy')
+    await writeFile(path.join(workspaceRoot, 'boards', 'corrupt.canvasnote'), '{broken', 'utf8')
+
+    expect(await service.list()).toEqual([created])
+  })
+
   it('keeps only the five most recent pre-save backups', async () => {
     let stored = await service.create('Initial')
     for (let version = 1; version <= 6; version += 1) {

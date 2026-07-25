@@ -273,7 +273,7 @@ export const revisionSchema = z.string().regex(/^[a-f0-9]{64}$/)
 export const boardSaveRequestSchema = z
   .object({
     board: boardFileSchema,
-    expectedRevision: revisionSchema.optional()
+    expectedRevision: revisionSchema
   })
   .strict()
 

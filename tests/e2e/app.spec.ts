@@ -66,7 +66,7 @@ test('creates, edits, trashes, restores, and reopens a local board', async () =>
 
   await page.getByRole('button', { name: 'New board' }).click()
   await page.getByPlaceholder('Board title').fill('Video research')
-  await page.getByRole('button', { name: 'Create board' }).click()
+  await page.locator('form').getByRole('button', { name: 'Create board', exact: true }).click()
   await expect(page.getByText('This board is empty')).toBeVisible()
 
   const title = page.getByLabel('Board title')

@@ -29,9 +29,8 @@ function boardTitle(value: string): string {
   return title
 }
 
-function revision(value: string | undefined): string | undefined {
-  if (value !== undefined && !/^[a-f0-9]{64}$/.test(value))
-    throw new Error('Invalid board revision.')
+function revision(value: string): string {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error('Invalid board revision.')
   return value
 }
 
@@ -68,7 +67,7 @@ const api: CanvasNoteApi = {
       ipcRenderer.invoke(IPC_CHANNELS.boardOpen, {
         boardId: stableId(boardId)
       }) as Promise<OpenBoard>,
-    save: (board: BoardFile, expectedRevision?: string) =>
+    save: (board: BoardFile, expectedRevision: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.boardSave, {
         board,
         expectedRevision: revision(expectedRevision)

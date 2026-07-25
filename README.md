@@ -2,7 +2,7 @@
 
 CanvasNote is a local-first Electron desktop application for visual notes, media boards, and timestamped video research. It combines an infinite tldraw canvas with portable `.canvasnote` files and workspace-scoped local storage.
 
-> Current status: the secure project foundation and workspace picker are working. Features are delivered in verified, pushed milestones; see [CHANGELOG.md](CHANGELOG.md).
+> Current status: secure workspaces, the SQLite-backed dashboard, board lifecycle, and atomic `.canvasnote` persistence are working. The infinite editor is the next milestone; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
@@ -39,7 +39,9 @@ CanvasNote creates all user-owned data inside a selected workspace:
 ```text
 Workspace/
 ├── workspace.json
+├── .canvasnote/index.sqlite3
 ├── boards/
+├── trash/boards/
 ├── media/{images,videos,audio,files}/
 ├── thumbnails/
 ├── exports/
