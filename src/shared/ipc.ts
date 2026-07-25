@@ -8,10 +8,13 @@ import type {
 import type { ImportedMedia, MediaKind } from './schemas/media'
 import type { ExportCanvasRequest } from './schemas/export'
 import type { WorkspaceSummary } from './schemas/workspace'
+import type { AppSettings, SettingsSnapshot } from './schemas/settings'
 import type { TemplateId } from './templates'
 
 export const IPC_CHANNELS = {
   appInfo: 'app:info',
+  appCloseRequested: 'app:close-requested',
+  appCloseReady: 'app:close-ready',
   workspaceCreate: 'workspace:create',
   workspaceOpen: 'workspace:open',
   workspaceOpenRecent: 'workspace:open-recent',
@@ -33,7 +36,11 @@ export const IPC_CHANNELS = {
   mediaOpen: 'media:open',
   mediaReveal: 'media:reveal',
   exportJson: 'export:json',
-  exportCanvas: 'export:canvas'
+  exportCanvas: 'export:canvas',
+  settingsGet: 'settings:get',
+  settingsUpdate: 'settings:update',
+  settingsOpenData: 'settings:open-data',
+  settingsOpenBackups: 'settings:open-backups'
 } as const
 
 export interface AppInfo {
@@ -44,6 +51,8 @@ export interface AppInfo {
 export interface CanvasNoteApi {
   app: {
     getInfo: () => Promise<AppInfo>
+    onCloseRequested: (callback: () => void) => () => void
+    readyToClose: () => void
   }
   workspace: {
     create: (name: string) => Promise<WorkspaceSummary | null>
@@ -75,5 +84,11 @@ export interface CanvasNoteApi {
   export: {
     json: (board: BoardFile) => Promise<boolean>
     canvas: (request: ExportCanvasRequest) => Promise<boolean>
+  }
+  settings: {
+    get: () => Promise<SettingsSnapshot>
+    update: (settings: AppSettings) => Promise<SettingsSnapshot>
+    openDataLocation: () => Promise<void>
+    openBackups: () => Promise<void>
   }
 }

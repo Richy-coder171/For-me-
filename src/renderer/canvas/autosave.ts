@@ -3,11 +3,13 @@ export interface AutosaveQueue {
   flush: () => Promise<void>
   cancel: () => void
   isDirty: () => boolean
+  setDelay: (delay: number) => void
   setSave: (save: () => Promise<void>) => void
 }
 
 export function createAutosaveQueue(save: () => Promise<void>, delay = 750): AutosaveQueue {
   let saveTask = save
+  let saveDelay = delay
   let timer: ReturnType<typeof setTimeout> | undefined
   let dirty = false
   let running: Promise<void> | null = null
@@ -45,7 +47,7 @@ export function createAutosaveQueue(save: () => Promise<void>, delay = 750): Aut
     schedule: () => {
       dirty = true
       clearTimer()
-      timer = setTimeout(() => void flush().catch(() => undefined), delay)
+      timer = setTimeout(() => void flush().catch(() => undefined), saveDelay)
     },
     flush,
     cancel: () => {
@@ -53,6 +55,13 @@ export function createAutosaveQueue(save: () => Promise<void>, delay = 750): Aut
       dirty = false
     },
     isDirty: () => dirty,
+    setDelay: (nextDelay) => {
+      saveDelay = nextDelay
+      if (dirty) {
+        clearTimer()
+        timer = setTimeout(() => void flush().catch(() => undefined), saveDelay)
+      }
+    },
     setSave: (nextSave) => {
       saveTask = nextSave
     }

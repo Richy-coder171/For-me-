@@ -2,9 +2,10 @@ import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-import { app, BrowserWindow, net, protocol, session } from 'electron'
+import { app, BrowserWindow, ipcMain, net, protocol, session } from 'electron'
 
 import { MEDIA_SCHEME, mediaPathFromUrl } from '../shared/schemas/media'
+import { IPC_CHANNELS } from '../shared/ipc'
 import { registerHandlers } from './ipc/registerHandlers'
 import { parseByteRange } from './security/byteRange'
 import { isCanvasNoteDocumentResponse } from './security/contentSecurityPolicy'
@@ -12,13 +13,16 @@ import { DatabaseService } from './services/databaseService'
 import { MediaService, mediaMimeType } from './services/mediaService'
 import { ExportService } from './services/exportService'
 import { WorkspaceService } from './services/workspaceService'
+import { SettingsService } from './services/settingsService'
 
 let mainWindow: BrowserWindow | null = null
 const workspaces = new WorkspaceService()
 const database = new DatabaseService()
 const media = new MediaService(() => workspaces.activeRoot)
 const exports = new ExportService()
+const settings = new SettingsService(() => workspaces.activeRoot)
 let disposeHandlers: (() => void) | null = null
+let closeApproved = false
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -53,6 +57,7 @@ function rendererDocumentUrl(): string {
 }
 
 function createWindow(): void {
+  closeApproved = false
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
@@ -76,6 +81,11 @@ function createWindow(): void {
   })
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('close', (event) => {
+    if (closeApproved || !mainWindow) return
+    event.preventDefault()
+    mainWindow.webContents.send(IPC_CHANNELS.appCloseRequested)
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -90,6 +100,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  ipcMain.on(IPC_CHANNELS.appCloseReady, (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return
+    closeApproved = true
+    mainWindow.close()
+  })
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     if (!isCanvasNoteDocumentResponse(details, rendererDocumentUrl(), mainWindow?.webContents.id)) {
       callback({})
@@ -166,7 +181,7 @@ app.whenReady().then(() => {
     }
   })
 
-  disposeHandlers = registerHandlers(workspaces, database, media, exports)
+  disposeHandlers = registerHandlers(workspaces, database, media, exports, settings)
   createWindow()
 
   app.on('activate', () => {
@@ -178,7 +193,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('will-quit', () => {
   disposeHandlers?.()
   disposeHandlers = null
 })

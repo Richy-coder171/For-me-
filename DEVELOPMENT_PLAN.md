@@ -20,7 +20,7 @@ Board files are the portable source of truth. SQLite is a rebuildable index and 
 
 ## Delivery phases
 
-Phases 1-4 plus search, templates, and import/export from phase 5 are complete. The next implementation milestone is settings and recovery.
+Phases 1-5 are complete, including settings, configurable backups, media repair, and save-before-close recovery. The current milestone is final quality and packaging.
 
 1. **Foundation** — Electron/Vite/React/TypeScript, secure main/preload boundary, Tailwind, schemas, tests, application shell, documentation.
 2. **Workspace and dashboard** — workspace creation/opening, SQLite migrations, board CRUD, atomic `.canvasnote` files, recents, favourites, trash.

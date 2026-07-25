@@ -15,11 +15,13 @@ import { stableIdSchema } from '../../shared/schemas/common'
 import { mediaImportRequestSchema, mediaPathRequestSchema } from '../../shared/schemas/media'
 import { createWorkspaceRequestSchema } from '../../shared/schemas/workspace'
 import { exportCanvasRequestSchema } from '../../shared/schemas/export'
+import { appSettingsSchema } from '../../shared/schemas/settings'
 import { templateIdSchema } from '../../shared/templates'
 import { BoardService, type StoredBoard } from '../services/boardService'
 import { DatabaseService, type BoardMetadata } from '../services/databaseService'
 import type { ExportService } from '../services/exportService'
 import type { MediaService } from '../services/mediaService'
+import type { SettingsService } from '../services/settingsService'
 import type { WorkspaceService } from '../services/workspaceService'
 
 function senderWindow(event: Electron.IpcMainInvokeEvent): BrowserWindow {
@@ -63,7 +65,8 @@ export function registerHandlers(
   workspaces: WorkspaceService,
   database: DatabaseService,
   media: MediaService,
-  exports: ExportService
+  exports: ExportService,
+  settings: SettingsService
 ): () => void {
   let boards: BoardService | null = null
 
@@ -82,7 +85,7 @@ export function registerHandlers(
 
     try {
       database.initialize(root)
-      boards = new BoardService(root)
+      boards = new BoardService(root, settings.get().backupLimit)
       const storedBoards = await boards.list()
       for (const stored of storedBoards) {
         database.upsertBoard(metadataFor(stored))
@@ -255,6 +258,26 @@ export function registerHandlers(
   ipcMain.handle(IPC_CHANNELS.exportCanvas, (event, input: unknown) => {
     const window = senderWindow(event)
     return exports.saveCanvas(window, exportCanvasRequestSchema.parse(input))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settingsGet, (event) => {
+    senderWindow(event)
+    return settings.snapshot()
+  })
+  ipcMain.handle(IPC_CHANNELS.settingsUpdate, (event, input: unknown) => {
+    senderWindow(event)
+    const values = settings.update(appSettingsSchema.parse(input))
+    boards?.setBackupLimit(values.backupLimit)
+    return settings.snapshot()
+  })
+  ipcMain.handle(IPC_CHANNELS.settingsOpenData, (event) => {
+    senderWindow(event)
+    return settings.openDataLocation()
+  })
+  ipcMain.handle(IPC_CHANNELS.settingsOpenBackups, (event) => {
+    senderWindow(event)
+    requireBoards()
+    return settings.openBackups()
   })
 
   return () => {

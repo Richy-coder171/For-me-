@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { ArrowRight, FileInput, FolderOpen, LoaderCircle, Moon, Plus, Sun } from 'lucide-react'
+import {
+  ArrowRight,
+  FileInput,
+  FolderOpen,
+  LoaderCircle,
+  Moon,
+  Plus,
+  Settings2,
+  Sun
+} from 'lucide-react'
 
 import { useAppStore } from '../stores/appStore'
 import { BrandMark } from './BrandMark'
@@ -8,12 +17,14 @@ interface WelcomeScreenProps {
   dark: boolean
   onToggleTheme: () => void
   onImportBoard: () => void
+  onOpenSettings: () => void
 }
 
 export function WelcomeScreen({
   dark,
   onToggleTheme,
-  onImportBoard
+  onImportBoard,
+  onOpenSettings
 }: WelcomeScreenProps): React.JSX.Element {
   const [name, setName] = useState('My CanvasNote Workspace')
   const {
@@ -32,15 +43,26 @@ export function WelcomeScreen({
     <main className="min-h-screen bg-canvas text-ink">
       <header className="flex h-20 items-center justify-between border-b border-line px-8 lg:px-12">
         <BrandMark />
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="icon-button"
-          aria-label={dark ? 'Use light appearance' : 'Use dark appearance'}
-          title={dark ? 'Light appearance' : 'Dark appearance'}
-        >
-          {dark ? <Sun size={17} /> : <Moon size={17} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="icon-button"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <Settings2 size={17} />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="icon-button"
+            aria-label={dark ? 'Use light appearance' : 'Use dark appearance'}
+            title={dark ? 'Light appearance' : 'Dark appearance'}
+          >
+            {dark ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+        </div>
       </header>
 
       <div className="mx-auto grid max-w-6xl gap-12 px-8 py-12 lg:grid-cols-[1fr_0.86fr] lg:px-12 lg:py-16">

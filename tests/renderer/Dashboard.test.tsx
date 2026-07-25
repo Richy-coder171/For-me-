@@ -73,6 +73,7 @@ function dashboardProps(overrides: Partial<DashboardProps> = {}): DashboardProps
     onDeleteBoard: vi.fn(),
     onCloseWorkspace: vi.fn(),
     onToggleTheme: vi.fn(),
+    onOpenSettings: vi.fn(),
     ...overrides
   }
 }

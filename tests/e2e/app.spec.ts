@@ -95,7 +95,7 @@ test('launches the isolated welcome screen', async () => {
   expect(security).toEqual({
     nodeProcess: 'undefined',
     nodeRequire: 'undefined',
-    bridgeDomains: ['app', 'boards', 'export', 'media', 'workspace']
+    bridgeDomains: ['app', 'boards', 'export', 'media', 'settings', 'workspace']
   })
 })
 
@@ -310,4 +310,37 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByText('Research question')).toBeVisible()
   await expect(page.getByText('What do I want to learn?')).toBeVisible()
 
+})
+
+test('flushes a pending edit on close and restores it after restart', async () => {
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await page.getByLabel('Autosave interval').selectOption('3000')
+  await page.getByRole('button', { name: 'Close settings' }).click()
+
+  await page.getByLabel('Board title').fill('Recovered after fast close')
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+
+  const closed = application.waitForEvent('close')
+  await application
+    .evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    .catch(() => undefined)
+  await closed
+
+  const environment: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') environment[key] = value
+  }
+  application = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(testRoot, 'user-data')}`],
+    cwd: process.cwd(),
+    env: environment
+  })
+  page = await application.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+
+  await page.getByRole('button', { name: /E2E Workspace/ }).click()
+  await expect(page.getByRole('button', { name: 'Open Recovered after fast close' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open Recovered after fast close' }).click()
+  await expect(page.getByLabel('Board title')).toHaveValue('Recovered after fast close')
 })

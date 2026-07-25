@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { BoardEditor } from './canvas/BoardEditor'
 import { Dashboard } from './components/Dashboard'
 import { WelcomeScreen } from './components/WelcomeScreen'
+import { SettingsPanel } from './components/SettingsPanel'
 import { useAppStore, type BoardSection } from './stores/appStore'
+import { DEFAULT_APP_SETTINGS } from '../shared/schemas/settings'
 
 function initialDarkMode(): boolean {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
@@ -30,17 +32,65 @@ function ErrorToast({
 }
 
 export default function App(): React.JSX.Element {
-  const [dark, setDark] = useState(initialDarkMode)
+  const [systemDark, setSystemDark] = useState(initialDarkMode)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const closePreparation = useRef<() => Promise<void>>(async () => undefined)
   const store = useAppStore()
   const initialize = store.initialize
+  const settings = store.settingsSnapshot?.values ?? DEFAULT_APP_SETTINGS
+  const dark = settings.theme === 'dark' || (settings.theme === 'system' && systemDark)
 
   useEffect(() => {
     void initialize()
   }, [initialize])
 
   useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!media) return
+    const update = (): void => setSystemDark(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
-  }, [dark])
+    document.documentElement.dataset.accent = settings.accent
+  }, [dark, settings.accent])
+
+  useEffect(
+    () =>
+      window.canvasNote.app.onCloseRequested(() => {
+        void closePreparation.current()
+          .then(() => window.canvasNote.app.readyToClose())
+          .catch(() => undefined)
+      }),
+    []
+  )
+
+  const registerClosePreparation = useCallback((handler: () => Promise<void>) => {
+    closePreparation.current = handler
+    return () => {
+      if (closePreparation.current === handler) closePreparation.current = async () => undefined
+    }
+  }, [])
+
+  const toggleTheme = (): void => {
+    void store
+      .updateSettings({ ...settings, theme: dark ? 'light' : 'dark' })
+      .catch(() => undefined)
+  }
+
+  const settingsPanel =
+    settingsOpen && store.settingsSnapshot ? (
+      <SettingsPanel
+        snapshot={store.settingsSnapshot}
+        recentWorkspaces={store.recentWorkspaces}
+        onChange={store.updateSettings}
+        onOpenDataLocation={store.openDataLocation}
+        onOpenBackups={store.openBackups}
+        onClose={() => setSettingsOpen(false)}
+      />
+    ) : null
 
   if (store.currentBoard) {
     return (
@@ -50,7 +100,11 @@ export default function App(): React.JSX.Element {
           stored={store.currentBoard}
           onBack={store.closeBoard}
           onSave={store.saveBoard}
+          settings={settings}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onRegisterClosePreparation={registerClosePreparation}
         />
+        {settingsPanel}
         {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
       </>
     )
@@ -84,18 +138,25 @@ export default function App(): React.JSX.Element {
           onRestoreBoard={(boardId) => void store.restoreBoard(boardId).catch(() => undefined)}
           onDeleteBoard={(boardId) => void store.deleteBoard(boardId).catch(() => undefined)}
           onCloseWorkspace={() => void store.closeWorkspace().catch(() => undefined)}
-          onToggleTheme={() => setDark((value) => !value)}
+          onToggleTheme={toggleTheme}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
+        {settingsPanel}
         {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
       </>
     )
   }
 
   return (
-    <WelcomeScreen
-      dark={dark}
-      onToggleTheme={() => setDark((value) => !value)}
-      onImportBoard={() => void store.importBoard().catch(() => undefined)}
-    />
+    <>
+      <WelcomeScreen
+        dark={dark}
+        onToggleTheme={toggleTheme}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onImportBoard={() => void store.importBoard().catch(() => undefined)}
+      />
+      {settingsPanel}
+      {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
+    </>
   )
 }

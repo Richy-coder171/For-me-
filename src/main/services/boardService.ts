@@ -15,7 +15,7 @@ import { createBoardFromTemplate, type TemplateId } from '../../shared/templates
 import { assertNoSymlinkEscape } from '../security/pathValidation'
 
 const BOARD_EXTENSION = '.canvasnote'
-const BACKUP_LIMIT = 5
+const DEFAULT_BACKUP_LIMIT = 5
 const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|clock\$|com[1-9]|lpt[1-9])$/i
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
 
@@ -119,13 +119,17 @@ async function writeAtomically(destinationPath: string, data: Uint8Array): Promi
   }
 }
 
-async function rotateBackup(backupDirectory: string, data: Uint8Array): Promise<void> {
+async function rotateBackup(
+  backupDirectory: string,
+  data: Uint8Array,
+  backupLimit: number
+): Promise<void> {
   await mkdir(backupDirectory, { recursive: true })
   const temporaryPath = path.join(backupDirectory, `.${randomUUID()}.tmp`)
   try {
     await writeAndSync(temporaryPath, data)
-    await rm(path.join(backupDirectory, `${BACKUP_LIMIT}${BOARD_EXTENSION}`), { force: true })
-    for (let index = BACKUP_LIMIT - 1; index >= 1; index -= 1) {
+    await rm(path.join(backupDirectory, `${backupLimit}${BOARD_EXTENSION}`), { force: true })
+    for (let index = backupLimit - 1; index >= 1; index -= 1) {
       try {
         await rename(
           path.join(backupDirectory, `${index}${BOARD_EXTENSION}`),
@@ -149,13 +153,25 @@ export class BoardService {
   readonly #trashDirectory: string
   readonly #backupsDirectory: string
   readonly #queues = new Map<string, Promise<void>>()
+  #backupLimit: number
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, backupLimit = DEFAULT_BACKUP_LIMIT) {
     if (!workspaceRoot.trim()) throw new Error('A workspace root is required.')
+    if (!Number.isInteger(backupLimit) || backupLimit < 1 || backupLimit > 10) {
+      throw new Error('Backup limit must be between 1 and 10.')
+    }
     this.#workspaceRoot = path.resolve(workspaceRoot)
     this.#boardsDirectory = path.join(this.#workspaceRoot, 'boards')
     this.#trashDirectory = path.join(this.#workspaceRoot, 'trash', 'boards')
     this.#backupsDirectory = path.join(this.#workspaceRoot, 'backups')
+    this.#backupLimit = backupLimit
+  }
+
+  setBackupLimit(backupLimit: number): void {
+    if (!Number.isInteger(backupLimit) || backupLimit < 1 || backupLimit > 10) {
+      throw new Error('Backup limit must be between 1 and 10.')
+    }
+    this.#backupLimit = backupLimit
   }
 
   async list(): Promise<StoredBoard[]> {
@@ -240,7 +256,7 @@ export class BoardService {
       if (currentData !== null) {
         const backupDirectory = path.join(this.#backupsDirectory, id)
         await this.#ensureDirectory(backupDirectory)
-        await rotateBackup(backupDirectory, currentData)
+        await rotateBackup(backupDirectory, currentData, this.#backupLimit)
       }
 
       await writeAtomically(destinationPath, data)

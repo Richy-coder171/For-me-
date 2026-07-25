@@ -63,6 +63,36 @@
   --video: #101216;
 }
 
+:root[data-accent='violet'] {
+  --accent: #7c4dbe;
+  --accent-soft: #f2ebff;
+}
+
+:root[data-accent='teal'] {
+  --accent: #137f78;
+  --accent-soft: #e4f5f2;
+}
+
+:root[data-accent='amber'] {
+  --accent: #a46014;
+  --accent-soft: #fff1d8;
+}
+
+:root.dark[data-accent='violet'] {
+  --accent: #c7a4ff;
+  --accent-soft: #392c4c;
+}
+
+:root.dark[data-accent='teal'] {
+  --accent: #79d7ce;
+  --accent-soft: #203f3d;
+}
+
+:root.dark[data-accent='amber'] {
+  --accent: #f3bd6b;
+  --accent-soft: #493820;
+}
+
 * {
   box-sizing: border-box;
 }

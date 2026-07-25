@@ -24,6 +24,7 @@ import {
   Redo2,
   Save,
   Search,
+  Settings2,
   StickyNote,
   Trash2,
   Undo2,
@@ -48,6 +49,7 @@ import {
 } from 'tldraw'
 
 import type { BoardFile, OpenBoard } from '../../shared/schemas/board'
+import type { AppSettings } from '../../shared/schemas/settings'
 import { BrandMark } from '../components/BrandMark'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
 import { searchBoard, type BoardSearchType } from './boardSearch'
@@ -108,6 +110,9 @@ interface BoardEditorProps {
   stored: OpenBoard
   onBack: () => Promise<void>
   onSave: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
+  settings: AppSettings
+  onOpenSettings: () => void
+  onRegisterClosePreparation: (handler: () => Promise<void>) => () => void
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -247,7 +252,14 @@ function ToolButton({
   )
 }
 
-export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React.JSX.Element {
+export function BoardEditor({
+  stored,
+  onBack,
+  onSave,
+  settings,
+  onOpenSettings,
+  onRegisterClosePreparation
+}: BoardEditorProps): React.JSX.Element {
   const [store] = useState(() => createTLStore({ shapeUtils: CANVAS_SHAPE_UTILS }))
   const [editor, setEditor] = useState<Editor | null>(null)
   const [title, setTitle] = useState(stored.board.title)
@@ -312,11 +324,22 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     }
   }, [onSave])
 
-  const [saveQueue] = useState<AutosaveQueue>(() => createAutosaveQueue(async () => undefined))
+  const [saveQueue] = useState<AutosaveQueue>(() =>
+    createAutosaveQueue(async () => undefined, settings.autosaveDelayMs)
+  )
 
   useEffect(() => {
     saveQueue.setSave(saveCurrentBoard)
   }, [saveCurrentBoard, saveQueue])
+
+  useEffect(() => {
+    saveQueue.setDelay(settings.autosaveDelayMs)
+  }, [saveQueue, settings.autosaveDelayMs])
+
+  useEffect(
+    () => onRegisterClosePreparation(() => saveQueue.flush()),
+    [onRegisterClosePreparation, saveQueue]
+  )
 
   const markDirty = useCallback(() => {
     setSaveState((current) => (current === 'saving' ? current : 'dirty'))
@@ -436,7 +459,8 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
               ? createCNLocalVideoShape(position.x, position.y, {
                   mediaId: media.id,
                   mediaPath: media.relativePath,
-                  caption: media.filename
+                  caption: media.filename,
+                  playbackRate: settings.defaultPlaybackRate
                 })
               : createCNFileShape(position.x, position.y, {
                   mediaId: media.id,
@@ -452,7 +476,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
         setImporting(null)
       }
     },
-    [editor, importing]
+    [editor, importing, settings.defaultPlaybackRate]
   )
 
   const addEmbeddedVideo = useCallback(() => {
@@ -648,7 +672,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     selectedShape && isCNTimestampNoteShape(selectedShape) ? selectedShape : null
 
   const updateImageShape = useCallback(
-    (props: Partial<Pick<CNImageShape['props'], 'caption' | 'altText' | 'fit' | 'tags'>>) => {
+    (
+      props: Partial<
+        Pick<
+          CNImageShape['props'],
+          'mediaId' | 'mediaPath' | 'caption' | 'altText' | 'fit' | 'tags'
+        >
+      >
+    ) => {
       if (!editor || !imageShape) return
       editor.updateShape<CNImageShape>({
         id: imageShape.id,
@@ -660,7 +691,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   )
 
   const updateFileShape = useCallback(
-    (props: Partial<Pick<CNFileShape['props'], 'tags'>>) => {
+    (
+      props: Partial<
+        Pick<
+          CNFileShape['props'],
+          'mediaId' | 'mediaPath' | 'filename' | 'extension' | 'sizeBytes' | 'tags'
+        >
+      >
+    ) => {
       if (!editor || !fileShape) return
       editor.updateShape<CNFileShape>({
         id: fileShape.id,
@@ -672,7 +710,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   )
 
   const updateLocalVideoShape = useCallback(
-    (props: Partial<Pick<CNLocalVideoShape['props'], 'caption' | 'playbackRate' | 'tags'>>) => {
+    (
+      props: Partial<
+        Pick<
+          CNLocalVideoShape['props'],
+          'mediaId' | 'mediaPath' | 'caption' | 'playbackRate' | 'tags'
+        >
+      >
+    ) => {
       if (!editor || !localVideoShape) return
       editor.updateShape<CNLocalVideoShape>({
         id: localVideoShape.id,
@@ -681,6 +726,52 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
       })
     },
     [editor, localVideoShape]
+  )
+
+  const replaceSelectedMedia = useCallback(
+    async (kind: 'image' | 'video' | 'file'): Promise<void> => {
+      if (importing) return
+      setImporting(kind)
+      try {
+        const media = await window.canvasNote.media.importFile(kind)
+        if (!media) return
+        if (kind === 'image' && imageShape) {
+          updateImageShape({
+            mediaId: media.id,
+            mediaPath: media.relativePath,
+            altText: imageShape.props.altText || media.filename
+          })
+        } else if (kind === 'video' && localVideoShape) {
+          updateLocalVideoShape({
+            mediaId: media.id,
+            mediaPath: media.relativePath,
+            caption: localVideoShape.props.caption || media.filename
+          })
+        } else if (kind === 'file' && fileShape) {
+          updateFileShape({
+            mediaId: media.id,
+            mediaPath: media.relativePath,
+            filename: media.filename,
+            extension: media.extension,
+            sizeBytes: media.sizeBytes
+          })
+        }
+        setNotice(`${kind === 'video' ? 'Video' : kind === 'image' ? 'Image' : 'File'} replaced.`)
+      } catch {
+        setNotice(`CanvasNote could not replace that ${kind}.`)
+      } finally {
+        setImporting(null)
+      }
+    },
+    [
+      fileShape,
+      imageShape,
+      importing,
+      localVideoShape,
+      updateFileShape,
+      updateImageShape,
+      updateLocalVideoShape
+    ]
   )
 
   const updateEmbeddedVideoShape = useCallback(
@@ -892,6 +983,15 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           onClick={saveNow}
         >
           <Save size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Open settings"
+          title="Settings"
+          onClick={onOpenSettings}
+        >
+          <Settings2 size={16} />
         </button>
         <button
           type="button"
@@ -1219,6 +1319,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       placeholder="reference, visual"
                       onChange={(tags) => updateImageShape({ tags })}
                     />
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      disabled={importing !== null}
+                      onClick={() => void replaceSelectedMedia('image')}
+                    >
+                      <ImagePlus size={15} /> Replace image file
+                    </button>
                   </>
                 )}
 
@@ -1234,6 +1342,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       placeholder="source, attachment"
                       onChange={(tags) => updateFileShape({ tags })}
                     />
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      disabled={importing !== null}
+                      onClick={() => void replaceSelectedMedia('file')}
+                    >
+                      <Paperclip size={15} /> Replace attached file
+                    </button>
                   </>
                 )}
 
@@ -1271,6 +1387,14 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       }
                     >
                       <Clock3 size={15} /> Add note at current time
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      disabled={importing !== null}
+                      onClick={() => void replaceSelectedMedia('video')}
+                    >
+                      <Video size={15} /> Replace video file
                     </button>
                     <TagsField
                       id={localVideoShape.id}

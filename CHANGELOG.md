@@ -41,3 +41,7 @@ All notable CanvasNote changes are documented here.
 - Validated `.canvasnote` import from the welcome screen or dashboard with fresh collision-safe board IDs and safe rejection of unsupported versions.
 - Atomic JSON export plus rendered PNG/PDF export of the whole board or selected objects through native save dialogs.
 - Byte-level export service coverage and built-Electron coverage for the complete import and export user interface.
+- Validated local settings for theme, accent colour, default workspace, autosave timing, backup count, and default video speed.
+- Settings access from every screen, privacy and shortcut references, and safe shortcuts to application data and workspace backups.
+- A renderer/main close handshake that flushes pending board edits before Electron releases persistence services.
+- Configurable rotating backup limits and selected-object replacement for missing image, video, and file media.

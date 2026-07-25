@@ -12,6 +12,7 @@ import type { ImportedMedia, MediaKind } from '../shared/schemas/media'
 import type { WorkspaceSummary } from '../shared/schemas/workspace'
 import type { TemplateId } from '../shared/templates'
 import type { ExportCanvasRequest } from '../shared/schemas/export'
+import type { AppSettings, SettingsSnapshot } from '../shared/schemas/settings'
 
 function workspaceName(value: string): string {
   const name = value.trim()
@@ -89,7 +90,13 @@ function mediaUrl(relativePath: string): string {
 
 const api: CanvasNoteApi = {
   app: {
-    getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo) as Promise<AppInfo>
+    getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo) as Promise<AppInfo>,
+    onCloseRequested: (callback) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC_CHANNELS.appCloseRequested, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.appCloseRequested, listener)
+    },
+    readyToClose: () => ipcRenderer.send(IPC_CHANNELS.appCloseReady)
   },
   workspace: {
     create: (name) => {
@@ -172,6 +179,15 @@ const api: CanvasNoteApi = {
     json: (board) => ipcRenderer.invoke(IPC_CHANNELS.exportJson, board) as Promise<boolean>,
     canvas: (request: ExportCanvasRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.exportCanvas, request) as Promise<boolean>
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet) as Promise<SettingsSnapshot>,
+    update: (settings: AppSettings) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, settings) as Promise<SettingsSnapshot>,
+    openDataLocation: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.settingsOpenData) as Promise<void>,
+    openBackups: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.settingsOpenBackups) as Promise<void>
   }
 }
 

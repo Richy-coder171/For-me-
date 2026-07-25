@@ -4,6 +4,7 @@ import type { AppInfo } from '../../shared/ipc'
 import type { BoardFile, BoardSummary, OpenBoard, WorkspaceStats } from '../../shared/schemas/board'
 import type { WorkspaceSummary } from '../../shared/schemas/workspace'
 import type { TemplateId } from '../../shared/templates'
+import type { AppSettings, SettingsSnapshot } from '../../shared/schemas/settings'
 
 type Operation =
   | 'idle'
@@ -26,6 +27,7 @@ interface AppState {
   recentWorkspaces: WorkspaceSummary[]
   boards: BoardSummary[]
   workspaceStats: WorkspaceStats | null
+  settingsSnapshot: SettingsSnapshot | null
   boardSection: BoardSection
   boardView: BoardView
   boardQuery: string
@@ -50,8 +52,13 @@ interface AppState {
   trashBoard: (boardId: string) => Promise<void>
   restoreBoard: (boardId: string) => Promise<void>
   deleteBoard: (boardId: string) => Promise<void>
+  updateSettings: (settings: AppSettings) => Promise<void>
+  openDataLocation: () => Promise<void>
+  openBackups: () => Promise<void>
   clearError: () => void
 }
+
+let skipDefaultWorkspaceOnce = false
 
 function readableError(error: unknown): string {
   if (!(error instanceof Error)) return 'Something went wrong. Please try again.'
@@ -81,6 +88,7 @@ export const useAppStore = create<AppState>((set, get) => {
     recentWorkspaces: [],
     boards: [],
     workspaceStats: null,
+    settingsSnapshot: null,
     boardSection: 'recent',
     boardView: 'grid',
     boardQuery: '',
@@ -90,11 +98,20 @@ export const useAppStore = create<AppState>((set, get) => {
     initialize: async () => {
       set({ operation: 'loading', error: null })
       try {
-        const [appInfo, recentWorkspaces] = await Promise.all([
+        const [appInfo, recentWorkspaces, settingsSnapshot] = await Promise.all([
           window.canvasNote.app.getInfo(),
-          window.canvasNote.workspace.recent()
+          window.canvasNote.workspace.recent(),
+          window.canvasNote.settings.get()
         ])
-        set({ appInfo, recentWorkspaces, operation: 'idle' })
+        set({ appInfo, recentWorkspaces, settingsSnapshot, operation: 'idle' })
+        const openDefault = !skipDefaultWorkspaceOnce
+        skipDefaultWorkspaceOnce = false
+        const defaultWorkspace = openDefault
+          ? recentWorkspaces.find(({ id }) => id === settingsSnapshot.values.defaultWorkspaceId)
+          : undefined
+        if (defaultWorkspace) {
+          await activateWorkspace(await window.canvasNote.workspace.openRecent(defaultWorkspace.id))
+        }
       } catch (error) {
         fail(error)
       }
@@ -128,6 +145,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     closeWorkspace: async () => {
+      skipDefaultWorkspaceOnce = true
       try {
         await window.canvasNote.workspace.close()
       } finally {
@@ -260,6 +278,31 @@ export const useAppStore = create<AppState>((set, get) => {
       try {
         await window.canvasNote.boards.deletePermanently(boardId)
         await get().refreshDashboard()
+      } catch (error) {
+        throw fail(error)
+      }
+    },
+
+    updateSettings: async (settings) => {
+      try {
+        const settingsSnapshot = await window.canvasNote.settings.update(settings)
+        set({ settingsSnapshot })
+      } catch (error) {
+        throw fail(error)
+      }
+    },
+
+    openDataLocation: async () => {
+      try {
+        await window.canvasNote.settings.openDataLocation()
+      } catch (error) {
+        throw fail(error)
+      }
+    },
+
+    openBackups: async () => {
+      try {
+        await window.canvasNote.settings.openBackups()
       } catch (error) {
         throw fail(error)
       }

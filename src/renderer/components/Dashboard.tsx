@@ -14,6 +14,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings2,
   Star,
   Sun,
   Trash2,
@@ -60,6 +61,7 @@ export interface DashboardProps {
   onDeleteBoard: (boardId: string) => void
   onCloseWorkspace: () => void
   onToggleTheme: () => void
+  onOpenSettings: () => void
 }
 
 const navItems: ReadonlyArray<{
@@ -312,7 +314,8 @@ export function Dashboard({
   onRestoreBoard,
   onDeleteBoard,
   onCloseWorkspace,
-  onToggleTheme
+  onToggleTheme,
+  onOpenSettings
 }: DashboardProps): React.JSX.Element {
   const [showCreate, setShowCreate] = useState(false)
   const [boardTitle, setBoardTitle] = useState('')
@@ -425,6 +428,15 @@ export function Dashboard({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="icon-button"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <Settings2 size={16} />
+          </button>
           <button
             type="button"
             onClick={onToggleTheme}

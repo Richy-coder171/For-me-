@@ -71,4 +71,18 @@ describe('createAutosaveQueue', () => {
     expect(first).not.toHaveBeenCalled()
     expect(latest).toHaveBeenCalledOnce()
   })
+
+  it('applies an updated delay to pending work', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async () => undefined)
+    const queue = createAutosaveQueue(save, 3_000)
+
+    queue.schedule()
+    queue.setDelay(500)
+    await vi.advanceTimersByTimeAsync(499)
+    expect(save).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(save).toHaveBeenCalledOnce()
+  })
 })
