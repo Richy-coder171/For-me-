@@ -84,6 +84,26 @@ describe('boardFileSchema', () => {
     expect(() => boardFileSchema.parse(board)).toThrow()
   })
 
+  it('accepts safe link cards and rejects executable URLs', () => {
+    const board = createEmptyBoard('board-1', 'Board', new Date(now))
+    const link = {
+      ...baseNode('link-1'),
+      type: 'link',
+      url: 'https://example.com/guide',
+      title: 'Guide',
+      description: 'Reference',
+      domain: 'example.com'
+    }
+
+    expect(boardFileSchema.parse({ ...board, nodes: [link] }).nodes[0]).toMatchObject({
+      type: 'link',
+      url: 'https://example.com/guide'
+    })
+    expect(() =>
+      boardFileSchema.parse({ ...board, nodes: [{ ...link, url: 'javascript:alert(1)' }] })
+    ).toThrow(/HTTP/)
+  })
+
   it('preserves content while reporting broken semantic references', () => {
     const parsed = boardFileSchema.parse({
       ...createEmptyBoard('board-1', 'Board', new Date(now)),

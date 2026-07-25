@@ -263,7 +263,39 @@ describe('board serializer', () => {
     expect(saved.board).toEqual(original)
   })
 
-  it('preserves schema-supported nodes and connections that this editor cannot render yet', () => {
+  it('assigns stable new domain IDs to duplicated persisted shapes', () => {
+    const original = testBoard()
+    const loaded = boardToTldraw(original)
+    const note = loaded.records.find((record) => record.id === 'shape:note-1')
+    const image = loaded.records.find((record) => record.id === 'shape:image-1')
+    expect(note?.typeName).toBe('shape')
+    expect(image?.typeName).toBe('shape')
+
+    const saved = tldrawToBoard(
+      original,
+      [
+        ...loaded.records,
+        { ...note, id: 'shape:note-copy', x: 360 },
+        { ...image, id: 'shape:image-copy', x: 420 }
+      ],
+      loaded.camera,
+      now
+    )
+
+    expect(saved.diagnostics).toEqual([])
+    expect(saved.board.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'note-copy', type: 'note' }),
+        expect.objectContaining({
+          id: 'image-copy',
+          type: 'image',
+          mediaPath: 'media/images/photo.webp'
+        })
+      ])
+    )
+  })
+
+  it('round-trips link cards and their connections', () => {
     const base = testBoard()
     const original = boardFileSchema.parse({
       ...base,
@@ -305,15 +337,9 @@ describe('board serializer', () => {
     const loaded = boardToTldraw(original)
     const saved = tldrawToBoard(original, loaded.records, loaded.camera, now)
 
-    expect(loaded.diagnostics.map(({ code }) => code)).toEqual(
-      expect.arrayContaining(['unsupported-node', 'unsupported-connection'])
-    )
-    expect(saved.board.nodes).toContainEqual(
-      expect.objectContaining({ id: 'link-1', type: 'link' })
-    )
-    expect(saved.board.connections).toContainEqual(
-      expect.objectContaining({ id: 'connection-link', targetNodeId: 'link-1' })
-    )
+    expect(loaded.diagnostics).toEqual([])
+    expect(saved.diagnostics).toEqual([])
+    expect(saved.board).toEqual(original)
   })
 
   it('ignores unknown or malformed shapes and reports diagnostics', () => {

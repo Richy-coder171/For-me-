@@ -2,9 +2,9 @@
 
 CanvasNote is a local-first Electron desktop application for visual notes, media boards, and timestamped video research. It combines an infinite tldraw canvas with portable `.canvasnote` files and workspace-scoped local storage.
 
-> Current status: secure workspaces, atomic `.canvasnote` persistence, the infinite canvas, portable media and video, timestamp seeking, local full-text search, editable templates, board import/export, settings, rotating backups, media repair, and save-before-close recovery are working. See [CHANGELOG.md](CHANGELOG.md).
+> Current status: secure workspaces, atomic `.canvasnote` persistence, the infinite canvas, portable media and video, timestamp seeking, link cards, local full-text search, editable templates, board import/export, settings, rotating backups, media repair, and save-before-close recovery are working. See [CHANGELOG.md](CHANGELOG.md).
 
-The editor supports notes, checklists, images, file cards, local video, approved YouTube/Vimeo embeds, timestamp notes, native frames and connections, grouping, properties, undo/redo, camera persistence, and configurable debounced autosave. Press `N` for a note, `C` for a checklist, `I` to import an image, `Shift+V` to import a video, `F` for a frame, `L` for a connection, `Ctrl/Cmd+K` to search and focus an object, and `Ctrl/Cmd+S` to save immediately.
+The editor supports notes, checklists, images, file and link cards, local video, approved YouTube/Vimeo embeds, timestamp notes, native frames and connections, grouping, properties, undo/redo, a minimap, context actions, OS copy/cut/paste, image drag/drop and clipboard paste, camera persistence, and configurable debounced autosave. Press `N` for a note, `C` for a checklist, `I` to import an image, `Shift+V` to import a video, `F` for a frame, `L` for a connection, `Ctrl/Cmd+K` to search and focus an object, and `Ctrl/Cmd+S` to save immediately.
 
 Use the header export control to save validated `.canvasnote` JSON or a rendered PNG/PDF of the whole board or current selection. Valid `.canvasnote` files can be imported from the welcome screen or dashboard; imports always receive a fresh board ID.
 

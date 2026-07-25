@@ -64,6 +64,7 @@
   "build": {
     "appId": "com.canvasnote.app",
     "productName": "CanvasNote",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },

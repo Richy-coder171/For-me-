@@ -188,11 +188,7 @@ describe('Dashboard', () => {
 
   it('creates boards from each editable template', () => {
     const onCreateTemplate = vi.fn()
-    render(
-      <Dashboard
-        {...dashboardProps({ section: 'templates', onCreateTemplate })}
-      />
-    )
+    render(<Dashboard {...dashboardProps({ section: 'templates', onCreateTemplate })} />)
 
     expect(screen.getByRole('heading', { name: 'Templates' })).toBeInTheDocument()
     for (const name of [

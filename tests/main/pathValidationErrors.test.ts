@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const filesystem = vi.hoisted(() => ({
   realpath: vi.fn(),
-  stat: vi.fn()
+  lstat: vi.fn()
 }))
 
 vi.mock('node:fs/promises', () => ({ ...filesystem, default: filesystem }))
@@ -18,24 +18,24 @@ describe('workspace path validation errors', () => {
   it('climbs to an existing parent for ENOENT', async () => {
     const parent = path.dirname(candidate)
     filesystem.realpath.mockReset().mockResolvedValueOnce(root).mockResolvedValueOnce(parent)
-    filesystem.stat
+    filesystem.lstat
       .mockReset()
       .mockRejectedValueOnce(Object.assign(new Error('missing'), { code: 'ENOENT' }))
       .mockResolvedValueOnce({})
 
     await expect(assertNoSymlinkEscape(root, candidate)).resolves.toBeUndefined()
-    expect(filesystem.stat).toHaveBeenCalledTimes(2)
+    expect(filesystem.lstat).toHaveBeenCalledTimes(2)
   })
 
   it('fails closed without climbing on permission errors', async () => {
     filesystem.realpath.mockReset().mockResolvedValue(root)
-    filesystem.stat
+    filesystem.lstat
       .mockReset()
       .mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' }))
 
     await expect(assertNoSymlinkEscape(root, candidate)).rejects.toThrow(
       'Unable to validate the workspace path.'
     )
-    expect(filesystem.stat).toHaveBeenCalledOnce()
+    expect(filesystem.lstat).toHaveBeenCalledOnce()
   })
 })

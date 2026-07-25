@@ -60,7 +60,8 @@ export default function App(): React.JSX.Element {
   useEffect(
     () =>
       window.canvasNote.app.onCloseRequested(() => {
-        void closePreparation.current()
+        void closePreparation
+          .current()
           .then(() => window.canvasNote.app.readyToClose())
           .catch(() => undefined)
       }),

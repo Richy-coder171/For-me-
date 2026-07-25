@@ -206,6 +206,12 @@ function detectedMediaFamily(header: Buffer): string | null {
   return null
 }
 
+function assertImageDataSignature(data: Uint8Array, extension: string): void {
+  const detected = detectedMediaFamily(Buffer.from(data.buffer, data.byteOffset, data.byteLength))
+  const expected = extension === 'jpg' ? 'jpeg' : extension
+  if (detected !== expected) throw new Error('The image contents do not match its extension.')
+}
+
 async function assertMediaSignature(
   source: FileHandle,
   sourceSize: number,
@@ -332,6 +338,64 @@ export class MediaService {
     } finally {
       await source.close().catch(() => undefined)
     }
+  }
+
+  async importImageData(filename: string, data: Uint8Array): Promise<ImportedMedia> {
+    const extension = extensionOf(filename)
+    if (!KIND_EXTENSIONS.image?.has(extension)) {
+      throw new Error('CanvasNote does not support this image format.')
+    }
+    if (data.byteLength === 0 || data.byteLength > 25 * 1024 * 1024) {
+      throw new Error('Pasted or dropped images must be between 1 byte and 25 MB.')
+    }
+    assertImageDataSignature(data, extension)
+
+    const root = this.#requireWorkspaceRoot()
+    const directory = resolveWorkspacePath(root, 'media/images')
+    await assertNoSymlinkEscape(root, directory)
+    await mkdir(directory, { recursive: true })
+    await assertNoSymlinkEscape(root, directory)
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const id = `media-${randomUUID()}`
+      const relativePath = mediaRelativePathSchema.parse(`media/images/${id}.${extension}`)
+      const destinationPath = resolveWorkspacePath(root, relativePath)
+      await assertNoSymlinkEscape(root, destinationPath)
+
+      let destination
+      try {
+        destination = await open(destinationPath, 'wx', 0o600)
+      } catch (error) {
+        if (hasCode(error, 'EEXIST')) continue
+        throw error
+      }
+      try {
+        await destination.writeFile(data)
+        await destination.sync()
+      } catch (error) {
+        await destination.close().catch(() => undefined)
+        await rm(destinationPath, { force: true }).catch(() => undefined)
+        throw error
+      } finally {
+        await destination.close().catch(() => undefined)
+      }
+
+      const safeFilename = path
+        .basename(filename)
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .slice(0, 255)
+      return importedMediaSchema.parse({
+        id,
+        kind: 'image',
+        relativePath,
+        filename: safeFilename || `image.${extension}`,
+        extension,
+        sizeBytes: data.byteLength,
+        mimeType: mediaMimeType(relativePath),
+        url: mediaUrlForPath(relativePath)
+      })
+    }
+    throw new Error('CanvasNote could not generate a unique media filename.')
   }
 
   async resolve(relativePath: string): Promise<string> {

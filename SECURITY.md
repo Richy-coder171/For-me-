@@ -10,6 +10,7 @@ CanvasNote treats the React renderer and imported workspace content as untrusted
 - `webSecurity: true`
 - webviews, popup creation, arbitrary navigation, and insecure mixed content disabled
 - restrictive Content Security Policy with exact approved video-frame origins
+- clipboard permission limited to CanvasNote's own main frame and read/write operations
 - dependency-free preload exposing fixed domain methods only
 
 The renderer never receives `ipcRenderer`, `fs`, unrestricted `shell`, process access, or generic read/write methods.
@@ -29,7 +30,7 @@ Portable paths must:
 - contain no drive letter, UNC/device prefix, NUL, encoded traversal, or mixed separators;
 - resolve beneath the canonical active root.
 
-Existing read targets and new-write parents are realpath-checked to prevent symbolic-link escapes where practical. Board JSON never stores absolute media paths. External media approval is keyed to one exact local asset in SQLite.
+Existing read targets, new-write parents, and the SQLite index path are realpath/lstat-checked to reject symbolic-link and junction escapes, including dangling links. Board JSON never stores absolute media paths. The active workspace root plus a validated relative path is the media authority; SQLite remains a rebuildable search index rather than an access-control boundary.
 
 ## Content and media
 

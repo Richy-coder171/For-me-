@@ -45,3 +45,8 @@ All notable CanvasNote changes are documented here.
 - Settings access from every screen, privacy and shortcut references, and safe shortcuts to application data and workspace backups.
 - A renderer/main close handshake that flushes pending board edits before Electron releases persistence services.
 - Configurable rotating backup limits and selected-object replacement for missing image, video, and file media.
+- Safe, resizable link cards with editable titles, descriptions, tags, portable serialization, search indexing, and main-process external opening.
+- A live minimap, usable canvas context menu, OS copy/cut/paste, and JPG/PNG/WebP/GIF drag/drop or clipboard import.
+- Duplicate-safe canvas identities and idempotent media indexing so copied notes, links, images, files, and videos continue to autosave.
+- Canonical SQLite-path validation that rejects workspace symlink/junction escapes and dangling database links.
+- Built-Electron coverage for frame undo/redo, object drag/resize, bound connections, clipboard workflows, image drop/paste, and byte-valid JSON/PNG/PDF exports.

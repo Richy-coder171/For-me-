@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  imageDataImportRequestSchema,
   importedMediaSchema,
   mediaPathFromUrl,
   mediaRelativePathSchema,
@@ -51,5 +52,17 @@ describe('media schemas', () => {
         url: mediaUrlForPath('media/files/two.txt')
       })
     ).toThrow(/does not match/)
+  })
+
+  it('bounds image byte transfers', () => {
+    expect(
+      imageDataImportRequestSchema.parse({
+        filename: 'paste.png',
+        data: new Uint8Array([1, 2, 3])
+      }).data
+    ).toHaveLength(3)
+    expect(() =>
+      imageDataImportRequestSchema.parse({ filename: 'empty.png', data: new Uint8Array() })
+    ).toThrow(/25 MB/)
   })
 })

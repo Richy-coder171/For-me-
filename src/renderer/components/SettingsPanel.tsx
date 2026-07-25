@@ -70,7 +70,12 @@ export function SettingsPanel({
               </h2>
             </div>
           </div>
-          <button type="button" className="icon-button" aria-label="Close settings" onClick={onClose}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close settings"
+            onClick={onClose}
+          >
             <X size={17} />
           </button>
         </header>
@@ -122,7 +127,9 @@ export function SettingsPanel({
                   className={fieldClass}
                   value={snapshot.values.defaultWorkspaceId ?? ''}
                   disabled={busy}
-                  onChange={(event) => void apply({ defaultWorkspaceId: event.target.value || null })}
+                  onChange={(event) =>
+                    void apply({ defaultWorkspaceId: event.target.value || null })
+                  }
                 >
                   <option value="">Show welcome screen</option>
                   {recentWorkspaces.map((workspace) => (
@@ -180,8 +187,8 @@ export function SettingsPanel({
               </label>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">
-              Media import mode: <strong>Copy into workspace</strong>. This keeps board paths portable
-              and prevents external files from granting the renderer filesystem access.
+              Media import mode: <strong>Copy into workspace</strong>. This keeps board paths
+              portable and prevents external files from granting the renderer filesystem access.
             </p>
           </section>
 
@@ -191,8 +198,8 @@ export function SettingsPanel({
               <div>
                 <h3 className="text-sm font-semibold">Keyboard shortcuts</h3>
                 <p className="mt-1 text-xs leading-5 text-muted">
-                  N note · C checklist · I image · Shift+V video · F frame · L connection · Ctrl/Cmd+K
-                  search · Ctrl/Cmd+S save · Ctrl/Cmd+Z undo · 0 fit board · 1 reset zoom
+                  N note · C checklist · I image · Shift+V video · F frame · L connection ·
+                  Ctrl/Cmd+K search · Ctrl/Cmd+S save · Ctrl/Cmd+Z undo · 0 fit board · 1 reset zoom
                 </p>
               </div>
             </div>
@@ -204,8 +211,8 @@ export function SettingsPanel({
               <div>
                 <h3 className="text-sm font-semibold">Privacy</h3>
                 <p className="mt-1 text-xs leading-5 text-muted">
-                  Boards, indexes, media, and backups stay on this computer. CanvasNote has no account,
-                  telemetry, cloud sync, or collaboration service.
+                  Boards, indexes, media, and backups stay on this computer. CanvasNote has no
+                  account, telemetry, cloud sync, or collaboration service.
                 </p>
               </div>
             </div>
@@ -241,7 +248,10 @@ export function SettingsPanel({
           </section>
 
           {error && (
-            <p className="rounded-lg border border-danger/25 bg-danger/5 px-3 py-2 text-xs text-danger" role="alert">
+            <p
+              className="rounded-lg border border-danger/25 bg-danger/5 px-3 py-2 text-xs text-danger"
+              role="alert"
+            >
               {error}
             </p>
           )}

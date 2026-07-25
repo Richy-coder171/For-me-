@@ -1,4 +1,5 @@
-import { realpath, stat } from 'node:fs/promises'
+import { lstatSync, realpathSync } from 'node:fs'
+import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 
 import { relativeWorkspacePathSchema } from '../../shared/schemas/common'
@@ -32,10 +33,8 @@ export async function assertNoSymlinkEscape(root: string, candidate: string): Pr
   const realRoot = await realpath(root)
   let existingPath = candidate
   while (isPathInside(root, existingPath)) {
-    let realCandidate: string
     try {
-      await stat(existingPath)
-      realCandidate = await realpath(existingPath)
+      await lstat(existingPath)
     } catch (error) {
       if (
         error === null ||
@@ -49,6 +48,49 @@ export async function assertNoSymlinkEscape(root: string, candidate: string): Pr
       if (parent === existingPath) break
       existingPath = parent
       continue
+    }
+    let realCandidate: string
+    try {
+      realCandidate = await realpath(existingPath)
+    } catch (error) {
+      throw new Error('Unable to validate the workspace path.', { cause: error })
+    }
+    if (!isPathInside(realRoot, realCandidate)) {
+      throw new Error('Symbolic links cannot escape the active workspace.')
+    }
+    return
+  }
+
+  throw new Error('Unable to validate the workspace path.')
+}
+
+export function assertNoSymlinkEscapeSync(root: string, candidate: string): void {
+  if (!isPathInside(root, candidate)) throw new Error('Path escaped the active workspace.')
+
+  const realRoot = realpathSync(root)
+  let existingPath = candidate
+  while (isPathInside(root, existingPath)) {
+    try {
+      lstatSync(existingPath)
+    } catch (error) {
+      if (
+        error === null ||
+        typeof error !== 'object' ||
+        !('code' in error) ||
+        !['ENOENT', 'ENOTDIR'].includes(String(error.code))
+      ) {
+        throw new Error('Unable to validate the workspace path.', { cause: error })
+      }
+      const parent = path.dirname(existingPath)
+      if (parent === existingPath) break
+      existingPath = parent
+      continue
+    }
+    let realCandidate: string
+    try {
+      realCandidate = realpathSync(existingPath)
+    } catch (error) {
+      throw new Error('Unable to validate the workspace path.', { cause: error })
     }
     if (!isPathInside(realRoot, realCandidate)) {
       throw new Error('Symbolic links cannot escape the active workspace.')

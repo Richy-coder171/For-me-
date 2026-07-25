@@ -13,6 +13,19 @@ export const mediaRelativePathSchema = relativeWorkspacePathSchema.refine(
 
 export const mediaImportRequestSchema = z.object({ kind: mediaKindSchema }).strict()
 
+export const MAX_IMAGE_TRANSFER_BYTES = 25 * 1024 * 1024
+
+export const imageDataImportRequestSchema = z
+  .object({
+    filename: z.string().min(1).max(255),
+    data: z.instanceof(Uint8Array)
+  })
+  .strict()
+  .refine(({ data }) => data.byteLength > 0 && data.byteLength <= MAX_IMAGE_TRANSFER_BYTES, {
+    message: 'Pasted or dropped images must be between 1 byte and 25 MB.',
+    path: ['data']
+  })
+
 export const mediaPathRequestSchema = z.object({ relativePath: mediaRelativePathSchema }).strict()
 
 export function mediaUrlForPath(relativePath: string): string {

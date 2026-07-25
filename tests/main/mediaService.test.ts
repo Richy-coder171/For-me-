@@ -71,6 +71,22 @@ describe('MediaService', () => {
     expect(await readFile(resolved)).toEqual(pngHeader)
   })
 
+  it('validates and stores an image transferred from paste or drop', async () => {
+    const png = MEDIA_HEADERS[0][2]
+    const imported = await service.importImageData('clipboard.PNG', new Uint8Array(png))
+
+    expect(imported).toMatchObject({
+      kind: 'image',
+      filename: 'clipboard.PNG',
+      extension: 'png',
+      sizeBytes: png.length
+    })
+    expect(await readFile(await service.resolve(imported.relativePath))).toEqual(png)
+    await expect(
+      service.importImageData('renamed.png', new Uint8Array([0xff, 0xd8, 0xff]))
+    ).rejects.toThrow(/do not match/)
+  })
+
   it.each(MEDIA_HEADERS)(
     'accepts a valid minimal .%s %s header',
     async (extension, kind, header) => {

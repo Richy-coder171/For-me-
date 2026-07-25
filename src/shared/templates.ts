@@ -101,14 +101,7 @@ function note(
   }
 }
 
-function checklist(
-  id: string,
-  x: number,
-  y: number,
-  title: string,
-  items: string[],
-  now: string
-) {
+function checklist(id: string, x: number, y: number, title: string, items: string[], now: string) {
   return {
     ...base(id, x, y, 320, 230, now),
     ...textStyle,
@@ -201,10 +194,41 @@ function contentFor(templateId: TemplateId, now: string): TemplateContent {
     case 'moodboard':
       return {
         nodes: [
-          note('direction', 300, 0, 'Creative direction', 'Describe the feeling and audience.', now),
-          note('palette', 0, 270, 'Colour palette', 'Add colours or import reference images.', now, 'rose'),
-          note('type', 350, 270, 'Typography', 'Collect type references and hierarchy ideas.', now, 'sky'),
-          note('texture', 700, 270, 'Texture & imagery', 'Drop images here and annotate what works.', now, 'mint')
+          note(
+            'direction',
+            300,
+            0,
+            'Creative direction',
+            'Describe the feeling and audience.',
+            now
+          ),
+          note(
+            'palette',
+            0,
+            270,
+            'Colour palette',
+            'Add colours or import reference images.',
+            now,
+            'rose'
+          ),
+          note(
+            'type',
+            350,
+            270,
+            'Typography',
+            'Collect type references and hierarchy ideas.',
+            now,
+            'sky'
+          ),
+          note(
+            'texture',
+            700,
+            270,
+            'Texture & imagery',
+            'Drop images here and annotate what works.',
+            now,
+            'mint'
+          )
         ],
         connections: [
           connection('direction-to-palette', 'direction', 'palette', now),
@@ -224,7 +248,15 @@ function contentFor(templateId: TemplateId, now: string): TemplateContent {
             ['Confirm scope', 'Assign the first milestone', 'Review progress'],
             now
           ),
-          note('milestones', 0, 300, 'Milestones', 'List the meaningful delivery points.', now, 'sky'),
+          note(
+            'milestones',
+            0,
+            300,
+            'Milestones',
+            'List the meaningful delivery points.',
+            now,
+            'sky'
+          ),
           note('risks', 370, 300, 'Risks & assumptions', 'What could change the plan?', now, 'rose')
         ],
         connections: [
@@ -252,9 +284,33 @@ function contentFor(templateId: TemplateId, now: string): TemplateContent {
     case 'learning-roadmap':
       return {
         nodes: [
-          note('foundation', 0, 160, '1. Foundations', 'What must I understand first?', now, 'mint'),
-          note('practice', 390, 160, '2. Guided practice', 'Choose exercises that build fluency.', now, 'sky'),
-          note('project', 780, 160, '3. Build a project', 'Apply the skill to a useful outcome.', now, 'amber'),
+          note(
+            'foundation',
+            0,
+            160,
+            '1. Foundations',
+            'What must I understand first?',
+            now,
+            'mint'
+          ),
+          note(
+            'practice',
+            390,
+            160,
+            '2. Guided practice',
+            'Choose exercises that build fluency.',
+            now,
+            'sky'
+          ),
+          note(
+            'project',
+            780,
+            160,
+            '3. Build a project',
+            'Apply the skill to a useful outcome.',
+            now,
+            'amber'
+          ),
           checklist(
             'next-topics',
             1170,

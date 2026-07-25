@@ -131,15 +131,13 @@ describe('BoardService', () => {
     service = new BoardService(workspaceRoot, 2)
     let stored = await service.create('Limited backups')
     for (let version = 1; version <= 3; version += 1) {
-      stored = await service.save(
-        { ...stored.board, title: `Limited ${version}` },
-        stored.revision
-      )
+      stored = await service.save({ ...stored.board, title: `Limited ${version}` }, stored.revision)
     }
 
-    expect(
-      (await readdir(path.join(workspaceRoot, 'backups', stored.board.id))).sort()
-    ).toEqual(['1.canvasnote', '2.canvasnote'])
+    expect((await readdir(path.join(workspaceRoot, 'backups', stored.board.id))).sort()).toEqual([
+      '1.canvasnote',
+      '2.canvasnote'
+    ])
   })
 
   it('moves boards to trash, restores them, and deletes them permanently', async () => {

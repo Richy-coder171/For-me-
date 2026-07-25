@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 
 import { IPC_CHANNELS } from '../../shared/ipc'
 import {
@@ -11,8 +11,12 @@ import {
   type BoardFile,
   type BoardSummary
 } from '../../shared/schemas/board'
-import { stableIdSchema } from '../../shared/schemas/common'
-import { mediaImportRequestSchema, mediaPathRequestSchema } from '../../shared/schemas/media'
+import { safeWebUrlSchema, stableIdSchema } from '../../shared/schemas/common'
+import {
+  imageDataImportRequestSchema,
+  mediaImportRequestSchema,
+  mediaPathRequestSchema
+} from '../../shared/schemas/media'
 import { createWorkspaceRequestSchema } from '../../shared/schemas/workspace'
 import { exportCanvasRequestSchema } from '../../shared/schemas/export'
 import { appSettingsSchema } from '../../shared/schemas/settings'
@@ -111,6 +115,10 @@ export function registerHandlers(
       version: app.getVersion(),
       platform: process.platform
     }
+  })
+  ipcMain.handle(IPC_CHANNELS.appOpenExternal, async (event, input: unknown) => {
+    senderWindow(event)
+    await shell.openExternal(safeWebUrlSchema.parse(input))
   })
 
   ipcMain.handle(IPC_CHANNELS.workspaceRecent, (event) => {
@@ -234,6 +242,11 @@ export function registerHandlers(
     const window = senderWindow(event)
     const { kind } = mediaImportRequestSchema.parse(input)
     return media.importFile(window, kind)
+  })
+  ipcMain.handle(IPC_CHANNELS.mediaImportImageData, (event, input: unknown) => {
+    senderWindow(event)
+    const request = imageDataImportRequestSchema.parse(input)
+    return media.importImageData(request.filename, request.data)
   })
   ipcMain.handle(IPC_CHANNELS.mediaExists, (event, input: unknown) => {
     senderWindow(event)

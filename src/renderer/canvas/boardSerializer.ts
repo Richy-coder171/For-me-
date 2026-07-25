@@ -25,6 +25,7 @@ import {
 } from './shapes/MediaShapeTypes'
 import type { CNEmbeddedVideoShape } from './shapes/EmbeddedVideoShapeUtil'
 import type { CNLocalVideoShape } from './shapes/LocalVideoShapeUtil'
+import type { CNLinkShape } from './shapes/LinkShapeUtil'
 import type { CNTimestampNoteShape } from './shapes/TimestampNoteShapeUtil'
 import type { CNChecklistShape, CNNoteShape } from './shapes/types'
 
@@ -33,6 +34,7 @@ const CN_CHECKLIST_TYPE = 'cn-checklist' as const
 const CN_LOCAL_VIDEO_TYPE = 'cn-local-video' as const
 const CN_EMBEDDED_VIDEO_TYPE = 'cn-embedded-video' as const
 const CN_TIMESTAMP_NOTE_TYPE = 'cn-timestamp-note' as const
+const CN_LINK_TYPE = 'cn-link' as const
 
 export const DEFAULT_TLDRAW_PAGE_ID = 'page:canvasnote' as TLPageId
 
@@ -44,6 +46,7 @@ export type BoardTldrawRecord =
   | CNLocalVideoShape
   | CNEmbeddedVideoShape
   | CNTimestampNoteShape
+  | CNLinkShape
   | TLFrameShape
   | TLGroupShape
   | TLArrowShape
@@ -135,8 +138,9 @@ function isBindingRecord(value: unknown): value is BindingRecord {
 const shapeId = (id: string): TLShapeId => createShapeId(id)
 
 function domainId(record: Pick<ShapeRecord, 'id' | 'meta'>): string {
-  return typeof record.meta.canvasNoteId === 'string'
-    ? record.meta.canvasNoteId
+  const persistedId = record.meta.canvasNoteId
+  return typeof persistedId === 'string' && record.id === `shape:${persistedId}`
+    ? persistedId
     : record.id.replace(/^shape:/, '')
 }
 
@@ -187,6 +191,7 @@ function isSupportedCanvasNode(node: BoardFile['nodes'][number]): boolean {
     node.type === 'local-video' ||
     node.type === 'embedded-video' ||
     node.type === 'timestamp-note' ||
+    node.type === 'link' ||
     node.type === 'frame'
   )
 }
@@ -410,6 +415,24 @@ export function boardToTldraw(
           }
         })
         break
+      case 'link':
+        records.push({
+          ...base,
+          type: CN_LINK_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            url: node.url,
+            title: node.title,
+            description: node.description,
+            domain: node.domain,
+            ...(node.previewImageUrl ? { previewImageUrl: node.previewImageUrl } : {}),
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
       case 'frame':
         records.push({
           ...base,
@@ -422,12 +445,6 @@ export function boardToTldraw(
           }
         })
         break
-      default:
-        diagnostics.push({
-          code: 'unsupported-node',
-          id: node.id,
-          message: `CanvasNote node type ${node.type} is not supported by this canvas.`
-        })
     }
   }
 
@@ -523,9 +540,10 @@ function relationFields(shape: ShapeRecord, shapes: Map<string, ShapeRecord>): o
   if (parent.type === 'frame') return { parentFrameId: domainId(parent) }
   if (parent.type !== 'group') return {}
 
+  const persistedGroupId = parent.meta.canvasNoteGroupId
   const groupId =
-    typeof parent.meta.canvasNoteGroupId === 'string'
-      ? parent.meta.canvasNoteGroupId
+    typeof persistedGroupId === 'string' && parent.id === `shape:group:${persistedGroupId}`
+      ? persistedGroupId
       : domainId(parent).replace(/^group:/, '')
   const groupParent = shapes.get(parent.parentId)
   return groupParent?.type === 'frame'
@@ -565,6 +583,7 @@ export function tldrawToBoard(
       shape.type !== CN_LOCAL_VIDEO_TYPE &&
       shape.type !== CN_EMBEDDED_VIDEO_TYPE &&
       shape.type !== CN_TIMESTAMP_NOTE_TYPE &&
+      shape.type !== CN_LINK_TYPE &&
       shape.type !== 'frame'
     ) {
       diagnostics.push({
@@ -690,6 +709,19 @@ export function tldrawToBoard(
           textColor: props.textColor,
           fontSize: props.fontSize,
           textAlign: props.textAlign
+        }
+        break
+      case CN_LINK_TYPE:
+        candidate = {
+          ...common,
+          type: 'link',
+          url: props.url,
+          title: props.title,
+          description: props.description,
+          domain: props.domain,
+          ...(typeof props.previewImageUrl === 'string'
+            ? { previewImageUrl: props.previewImageUrl }
+            : {})
         }
         break
       default:

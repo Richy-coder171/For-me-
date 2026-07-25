@@ -45,6 +45,8 @@ function mediaKind(value: string): MediaKind {
   return value
 }
 
+const MAX_IMAGE_TRANSFER_BYTES = 25 * 1024 * 1024
+
 function boardTemplateId(value: string): TemplateId {
   if (
     value !== 'video-research' &&
@@ -88,9 +90,28 @@ function mediaUrl(relativePath: string): string {
     .join('/')}`
 }
 
+function externalUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    if (
+      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+      url.username ||
+      url.password ||
+      value.length > 2048
+    ) {
+      throw new Error('Invalid external URL.')
+    }
+    return url.href
+  } catch {
+    throw new Error('Only HTTP(S) links can be opened.')
+  }
+}
+
 const api: CanvasNoteApi = {
   app: {
     getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo) as Promise<AppInfo>,
+    openExternal: (url) =>
+      ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, externalUrl(url)) as Promise<void>,
     onCloseRequested: (callback) => {
       const listener = (): void => callback()
       ipcRenderer.on(IPC_CHANNELS.appCloseRequested, listener)
@@ -161,6 +182,16 @@ const api: CanvasNoteApi = {
       ipcRenderer.invoke(IPC_CHANNELS.mediaImport, {
         kind: mediaKind(kind)
       }) as Promise<ImportedMedia | null>,
+    importImageData: (filename, data) => {
+      if (!filename || filename.length > 255) throw new Error('Invalid image filename.')
+      if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMAGE_TRANSFER_BYTES) {
+        throw new Error('Pasted or dropped images must be no larger than 25 MB.')
+      }
+      return ipcRenderer.invoke(IPC_CHANNELS.mediaImportImageData, {
+        filename,
+        data
+      }) as Promise<ImportedMedia>
+    },
     toUrl: mediaUrl,
     exists: (relativePath) =>
       ipcRenderer.invoke(IPC_CHANNELS.mediaExists, {
@@ -184,10 +215,8 @@ const api: CanvasNoteApi = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet) as Promise<SettingsSnapshot>,
     update: (settings: AppSettings) =>
       ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, settings) as Promise<SettingsSnapshot>,
-    openDataLocation: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.settingsOpenData) as Promise<void>,
-    openBackups: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.settingsOpenBackups) as Promise<void>
+    openDataLocation: () => ipcRenderer.invoke(IPC_CHANNELS.settingsOpenData) as Promise<void>,
+    openBackups: () => ipcRenderer.invoke(IPC_CHANNELS.settingsOpenBackups) as Promise<void>
   }
 }
 

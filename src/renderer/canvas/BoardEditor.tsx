@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Frame,
+  Globe2,
   Group,
   Hand,
   ImagePlus,
@@ -34,6 +35,7 @@ import {
   X
 } from 'lucide-react'
 import {
+  BreakPointProvider,
   TldrawEditor,
   createShapeId,
   createTLStore,
@@ -43,12 +45,16 @@ import {
   defaultShapeTools,
   defaultShapeUtils,
   defaultTools,
+  useEditor,
+  useValue,
   type Editor,
+  type TLContent,
   type TLShape,
   type TLShapeId
 } from 'tldraw'
 
 import type { BoardFile, OpenBoard } from '../../shared/schemas/board'
+import { MAX_IMAGE_TRANSFER_BYTES, type ImportedMedia } from '../../shared/schemas/media'
 import type { AppSettings } from '../../shared/schemas/settings'
 import { BrandMark } from '../components/BrandMark'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
@@ -60,6 +66,7 @@ import {
   CN_FILE_TYPE,
   CN_IMAGE_TYPE,
   CN_LOCAL_VIDEO_TYPE,
+  CN_LINK_TYPE,
   CN_NOTE_TYPE,
   CN_TIMESTAMP_NOTE_TYPE,
   canvasShapeUtils,
@@ -68,6 +75,7 @@ import {
   createCNFileShape,
   createCNImageShape,
   createCNLocalVideoShape,
+  createCNLinkShape,
   createCNTimestampNoteShape,
   createNoteShape,
   getNextShapePosition,
@@ -76,6 +84,7 @@ import {
   isCNFileShape,
   isCNImageShape,
   isCNLocalVideoShape,
+  isCNLinkShape,
   isCNNoteShape,
   isCNTimestampNoteShape,
   onVideoShapeEvent,
@@ -86,6 +95,7 @@ import {
   type CNFileShape,
   type CNImageShape,
   type CNLocalVideoShape,
+  type CNLinkShape,
   type CNNoteShape,
   type CNTimestampNoteShape,
   type CNTextAlign,
@@ -94,6 +104,8 @@ import {
 
 const CANVAS_SHAPE_UTILS = [...defaultShapeUtils, ...canvasShapeUtils] as const
 const CANVAS_TOOLS = [...defaultTools, ...defaultShapeTools] as const
+const CANVAS_CLIPBOARD_MIME = 'application/x-canvasnote-tldraw'
+const MAX_CANVAS_CLIPBOARD_CHARS = 5_000_000
 
 const BACKGROUNDS: Array<{ value: CNTextBackground; label: string; color: string }> = [
   { value: 'paper', label: 'Paper', color: '#fffefa' },
@@ -154,6 +166,8 @@ function selectedShapeLabel(shape: TLShape): string {
       return 'File'
     case CN_LOCAL_VIDEO_TYPE:
       return 'Local video'
+    case CN_LINK_TYPE:
+      return 'Link card'
     case CN_EMBEDDED_VIDEO_TYPE:
       return 'Embedded video'
     case CN_TIMESTAMP_NOTE_TYPE:
@@ -168,8 +182,9 @@ function selectedShapeLabel(shape: TLShape): string {
 }
 
 function canvasNoteId(shape: TLShape): string {
-  return typeof shape.meta.canvasNoteId === 'string'
-    ? shape.meta.canvasNoteId
+  const persistedId = shape.meta.canvasNoteId
+  return typeof persistedId === 'string' && shape.id === `shape:${persistedId}`
+    ? persistedId
     : shape.id.replace(/^shape:/, '')
 }
 
@@ -179,6 +194,36 @@ function parseTags(value: string): string[] {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 50)
+}
+
+function parseLinkUrl(value: string): { url: string; domain: string } | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
+    if (
+      (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return null
+    }
+    return { url: parsed.href, domain: parsed.hostname.toLowerCase() }
+  } catch {
+    return null
+  }
+}
+
+function imageImportFilename(file: File): string | null {
+  if (/\.(jpe?g|png|webp|gif)$/i.test(file.name)) return file.name
+  const extension =
+    {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif'
+    }[file.type.toLocaleLowerCase()] ?? null
+  return extension ? `pasted-image.${extension}` : null
 }
 
 function TagsField({
@@ -252,6 +297,316 @@ function ToolButton({
   )
 }
 
+function clipboardPayload(content: TLContent): string {
+  return JSON.stringify({ type: 'application/tldraw', kind: 'content', version: 2, data: content })
+}
+
+function clipboardContent(value: string): TLContent | null {
+  if (!value || value.length > MAX_CANVAS_CLIPBOARD_CHARS) return null
+  try {
+    const parsed = JSON.parse(value) as {
+      type?: unknown
+      kind?: unknown
+      version?: unknown
+      data?: unknown
+    }
+    if (
+      parsed.type !== 'application/tldraw' ||
+      parsed.kind !== 'content' ||
+      parsed.version !== 2 ||
+      !parsed.data ||
+      typeof parsed.data !== 'object'
+    ) {
+      return null
+    }
+    const content = parsed.data as Partial<TLContent>
+    if (
+      !Array.isArray(content.shapes) ||
+      !Array.isArray(content.rootShapeIds) ||
+      !Array.isArray(content.assets) ||
+      (content.bindings !== undefined && !Array.isArray(content.bindings)) ||
+      !content.schema ||
+      typeof content.schema !== 'object'
+    ) {
+      return null
+    }
+    return content as TLContent
+  } catch {
+    return null
+  }
+}
+
+function clipboardContentFromHtml(value: string): TLContent | null {
+  const payload = /<div data-tldraw[^>]*>([\s\S]*)<\/div>/.exec(value)?.[1]
+  return payload ? clipboardContent(payload) : null
+}
+
+function CanvasInteractionLayer(): React.JSX.Element {
+  const editor = useEditor()
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const clipboardCache = useRef<string | null>(null)
+
+  const currentClipboard = useCallback((): { payload: string; text: string } | null => {
+    const content = editor.getContentFromCurrentPage(editor.getSelectedShapeIds())
+    if (!content) return null
+    const payload = clipboardPayload(content)
+    const text = content.shapes
+      .map((shape) => editor.getShapeUtil(shape).getText(shape))
+      .filter((value): value is string => Boolean(value))
+      .join(' ')
+    clipboardCache.current = payload
+    return { payload, text: text || ' ' }
+  }, [editor])
+
+  const pastePayload = useCallback(
+    (payload: string): boolean => {
+      const content = clipboardContent(payload)
+      if (!content) return false
+      try {
+        editor.complete()
+        editor.markHistoryStoppingPoint('paste')
+        editor.putContentOntoCurrentPage(content, { select: true })
+        return true
+      } catch {
+        return false
+      }
+    },
+    [editor]
+  )
+
+  const copyFromMenu = useCallback(async (): Promise<void> => {
+    const copied = currentClipboard()
+    if (!copied) return
+    const html = `<div data-tldraw>${copied.payload}</div>`
+    const navigator = editor.getContainer().ownerDocument.defaultView?.navigator
+    if (!navigator) return
+    if (navigator.clipboard?.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([copied.text], { type: 'text/plain' })
+        })
+      ])
+    } else {
+      await navigator.clipboard?.writeText(html)
+    }
+  }, [currentClipboard, editor])
+
+  const pasteFromMenu = useCallback(async (): Promise<void> => {
+    const navigator = editor.getContainer().ownerDocument.defaultView?.navigator
+    if (!navigator) return
+    try {
+      for (const item of (await navigator.clipboard?.read()) ?? []) {
+        if (!item.types.includes('text/html')) continue
+        const html = await (await item.getType('text/html')).text()
+        const content = clipboardContentFromHtml(html)
+        if (content && pastePayload(clipboardPayload(content))) return
+      }
+    } catch {
+      // The in-memory copy remains available if the OS denies a menu-triggered read.
+    }
+    if (clipboardCache.current) pastePayload(clipboardCache.current)
+  }, [editor, pastePayload])
+
+  useEffect(() => {
+    const document = editor.getContainer().ownerDocument
+    const copy = (event: ClipboardEvent): void => {
+      if (isEditableTarget(event.target)) return
+      const copied = currentClipboard()
+      if (!copied || !event.clipboardData) return
+      const html = `<div data-tldraw>${copied.payload}</div>`
+      event.clipboardData.setData(CANVAS_CLIPBOARD_MIME, copied.payload)
+      event.clipboardData.setData('text/html', html)
+      event.clipboardData.setData('text/plain', copied.text)
+      event.preventDefault()
+    }
+    const cut = (event: ClipboardEvent): void => {
+      const selected = editor.getSelectedShapeIds()
+      copy(event)
+      if (event.defaultPrevented) {
+        editor.markHistoryStoppingPoint('cut')
+        editor.deleteShapes(selected)
+      }
+    }
+    const paste = (event: ClipboardEvent): void => {
+      if (isEditableTarget(event.target)) return
+      const direct = event.clipboardData?.getData(CANVAS_CLIPBOARD_MIME)
+      const html = event.clipboardData?.getData('text/html') ?? ''
+      const htmlContent = direct ? null : clipboardContentFromHtml(html)
+      const payload = direct || (htmlContent ? clipboardPayload(htmlContent) : '')
+      if (!payload) return
+      if (!pastePayload(payload)) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    document.addEventListener('copy', copy, true)
+    document.addEventListener('cut', cut, true)
+    document.addEventListener('paste', paste, true)
+    return () => {
+      document.removeEventListener('copy', copy, true)
+      document.removeEventListener('cut', cut, true)
+      document.removeEventListener('paste', paste, true)
+    }
+  }, [currentClipboard, editor, pastePayload])
+
+  const minimap = useValue(
+    'CanvasNote minimap',
+    () => {
+      const viewport = editor.getViewportPageBounds()
+      const content = editor.getCurrentPageBounds()
+      const x = Math.min(viewport.x, content?.x ?? viewport.x)
+      const y = Math.min(viewport.y, content?.y ?? viewport.y)
+      const maxX = Math.max(viewport.maxX, content?.maxX ?? viewport.maxX)
+      const maxY = Math.max(viewport.maxY, content?.maxY ?? viewport.maxY)
+      return {
+        bounds: { x, y, w: Math.max(1, maxX - x), h: Math.max(1, maxY - y) },
+        viewport: { x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h },
+        shapes: editor.getCurrentPageShapes().flatMap((shape) => {
+          if (shape.type === 'group' || shape.type === 'arrow') return []
+          const bounds = editor.getShapePageBounds(shape)
+          return bounds
+            ? [{ id: shape.id, x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h }]
+            : []
+        })
+      }
+    },
+    [editor]
+  )
+
+  useEffect(() => {
+    const document = editor.getContainer().ownerDocument
+    const openMenu = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element) || !editor.getContainer().contains(target)) return
+      if (isEditableTarget(target)) return
+      event.preventDefault()
+      const bounds = editor.getContainer().getBoundingClientRect()
+      setMenu({
+        x: Math.max(bounds.left + 8, Math.min(event.clientX, bounds.right - 184)),
+        y: Math.max(bounds.top + 8, Math.min(event.clientY, bounds.bottom - 260))
+      })
+    }
+    const closeMenu = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.canvas-context-menu')) return
+      setMenu(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('contextmenu', openMenu)
+    document.addEventListener('pointerdown', closeMenu, true)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('contextmenu', openMenu)
+      document.removeEventListener('pointerdown', closeMenu, true)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [editor])
+
+  const percentRect = (bounds: { x: number; y: number; w: number; h: number }) => ({
+    left: `${((bounds.x - minimap.bounds.x) / minimap.bounds.w) * 100}%`,
+    top: `${((bounds.y - minimap.bounds.y) / minimap.bounds.h) * 100}%`,
+    width: `${(bounds.w / minimap.bounds.w) * 100}%`,
+    height: `${(bounds.h / minimap.bounds.h) * 100}%`
+  })
+
+  const run = (action: () => unknown): void => {
+    setMenu(null)
+    void action()
+  }
+  const selected = editor.getSelectedShapeIds()
+
+  return (
+    <>
+      <div
+        className="canvas-minimap"
+        role="img"
+        aria-label="Canvas minimap"
+        title="Click to move around the board"
+        onPointerDown={(event) => {
+          editor.markEventAsHandled(event)
+          event.stopPropagation()
+          const rect = event.currentTarget.getBoundingClientRect()
+          const point = {
+            x: minimap.bounds.x + ((event.clientX - rect.left) / rect.width) * minimap.bounds.w,
+            y: minimap.bounds.y + ((event.clientY - rect.top) / rect.height) * minimap.bounds.h
+          }
+          editor.centerOnPoint(point)
+        }}
+      >
+        {minimap.shapes.map((shape) => (
+          <span className="canvas-minimap-shape" key={shape.id} style={percentRect(shape)} />
+        ))}
+        <span className="canvas-minimap-viewport" style={percentRect(minimap.viewport)} />
+      </div>
+
+      {menu && (
+        <div
+          className="canvas-context-menu"
+          role="menu"
+          aria-label="Canvas context menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={selected.length === 0}
+            onClick={() => run(copyFromMenu)}
+          >
+            Copy <span>Ctrl+C</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={selected.length === 0}
+            onClick={() =>
+              run(async () => {
+                await copyFromMenu()
+                editor.markHistoryStoppingPoint('cut')
+                editor.deleteShapes(selected)
+              })
+            }
+          >
+            Cut <span>Ctrl+X</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => run(pasteFromMenu)}>
+            Paste <span>Ctrl+V</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={selected.length === 0}
+            onClick={() => run(() => editor.duplicateShapes(selected, { x: 24, y: 24 }))}
+          >
+            Duplicate <span>Ctrl+D</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={selected.length === 0}
+            onClick={() => run(() => editor.toggleLock(selected))}
+          >
+            Toggle lock
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            disabled={selected.length === 0}
+            onClick={() => run(() => editor.deleteShapes(selected))}
+          >
+            Delete <span>Del</span>
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+const CANVAS_COMPONENTS = { InFrontOfTheCanvas: CanvasInteractionLayer }
+
 export function BoardEditor({
   stored,
   onBack,
@@ -275,6 +630,11 @@ export function BoardEditor({
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
   const [embedUrl, setEmbedUrl] = useState('')
   const [embedError, setEmbedError] = useState<string | null>(null)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkTitle, setLinkTitle] = useState('')
+  const [linkDescription, setLinkDescription] = useState('')
+  const [linkError, setLinkError] = useState<string | null>(null)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [exportScope, setExportScope] = useState<'all' | 'selection'>('all')
   const [exporting, setExporting] = useState(false)
@@ -306,7 +666,7 @@ export function BoardEditor({
 
     if (result.diagnostics.length > 0) {
       setSaveState('error')
-      setNotice('Save blocked: remove or repair the unsupported canvas object first.')
+      setNotice(`Save blocked: ${result.diagnostics[0]?.message ?? 'unsupported canvas object.'}`)
       throw new Error('CanvasNote refused a lossy board save.')
     }
 
@@ -438,46 +798,99 @@ export function BoardEditor({
     [editor]
   )
 
+  const placeImportedMedia = useCallback(
+    (
+      media: ImportedMedia,
+      kind: 'image' | 'video' | 'file',
+      dropPoint?: { x: number; y: number }
+    ): void => {
+      if (!editor) return
+      const width = kind === 'video' ? 480 : kind === 'image' ? 360 : 320
+      const height = kind === 'video' ? 360 : kind === 'image' ? 240 : 148
+      const position = dropPoint
+        ? { x: dropPoint.x - width / 2, y: dropPoint.y - height / 2 }
+        : getNextShapePosition(editor, width, height)
+      const shape =
+        kind === 'image'
+          ? createCNImageShape(position.x, position.y, {
+              mediaId: media.id,
+              mediaPath: media.relativePath,
+              altText: media.filename
+            })
+          : kind === 'video'
+            ? createCNLocalVideoShape(position.x, position.y, {
+                mediaId: media.id,
+                mediaPath: media.relativePath,
+                caption: media.filename,
+                playbackRate: settings.defaultPlaybackRate
+              })
+            : createCNFileShape(position.x, position.y, {
+                mediaId: media.id,
+                mediaPath: media.relativePath,
+                filename: media.filename,
+                extension: media.extension,
+                sizeBytes: media.sizeBytes
+              })
+      editor.createShape(shape).select(shape.id)
+    },
+    [editor, settings.defaultPlaybackRate]
+  )
+
   const importMedia = useCallback(
     async (kind: 'image' | 'video' | 'file'): Promise<void> => {
       if (!editor || importing) return
       setImporting(kind)
       try {
         const media = await window.canvasNote.media.importFile(kind)
-        if (!media) return
-        const width = kind === 'video' ? 480 : kind === 'image' ? 360 : 320
-        const height = kind === 'video' ? 360 : kind === 'image' ? 240 : 148
-        const position = getNextShapePosition(editor, width, height)
-        const shape =
-          kind === 'image'
-            ? createCNImageShape(position.x, position.y, {
-                mediaId: media.id,
-                mediaPath: media.relativePath,
-                altText: media.filename
-              })
-            : kind === 'video'
-              ? createCNLocalVideoShape(position.x, position.y, {
-                  mediaId: media.id,
-                  mediaPath: media.relativePath,
-                  caption: media.filename,
-                  playbackRate: settings.defaultPlaybackRate
-                })
-              : createCNFileShape(position.x, position.y, {
-                  mediaId: media.id,
-                  mediaPath: media.relativePath,
-                  filename: media.filename,
-                  extension: media.extension,
-                  sizeBytes: media.sizeBytes
-                })
-        editor.createShape(shape).select(shape.id)
+        if (media) placeImportedMedia(media, kind)
       } catch {
         setNotice(`CanvasNote could not import that ${kind}.`)
       } finally {
         setImporting(null)
       }
     },
-    [editor, importing, settings.defaultPlaybackRate]
+    [editor, importing, placeImportedMedia]
   )
+
+  const importImageData = useCallback(
+    async (file: File, dropPoint?: { x: number; y: number }): Promise<void> => {
+      if (!editor || importing) return
+      const filename = imageImportFilename(file)
+      if (!filename) {
+        setNotice('CanvasNote supports dropped or pasted JPG, PNG, WebP, and GIF images.')
+        return
+      }
+      if (file.size <= 0 || file.size > MAX_IMAGE_TRANSFER_BYTES) {
+        setNotice('Dropped or pasted images must be no larger than 25 MB.')
+        return
+      }
+      setImporting('image')
+      try {
+        const data = new Uint8Array(await file.arrayBuffer())
+        const media = await window.canvasNote.media.importImageData(filename, data)
+        placeImportedMedia(media, 'image', dropPoint)
+      } catch {
+        setNotice('CanvasNote could not import that image.')
+      } finally {
+        setImporting(null)
+      }
+    },
+    [editor, importing, placeImportedMedia]
+  )
+
+  useEffect(() => {
+    if (!editor) return
+    const pasteImage = (event: ClipboardEvent): void => {
+      if (isEditableTarget(event.target)) return
+      const file = Array.from(event.clipboardData?.files ?? []).find(imageImportFilename)
+      if (!file) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void importImageData(file)
+    }
+    document.addEventListener('paste', pasteImage, true)
+    return () => document.removeEventListener('paste', pasteImage, true)
+  }, [editor, importImageData])
 
   const addEmbeddedVideo = useCallback(() => {
     if (!editor) return
@@ -493,6 +906,27 @@ export function BoardEditor({
     setEmbedError(null)
     setEmbedDialogOpen(false)
   }, [editor, embedUrl])
+
+  const addLinkCard = useCallback(() => {
+    if (!editor) return
+    const parsed = parseLinkUrl(linkUrl)
+    if (!parsed) {
+      setLinkError('Enter a valid HTTP or HTTPS URL without a username or password.')
+      return
+    }
+    const position = getNextShapePosition(editor, 340, 190)
+    const shape = createCNLinkShape(position.x, position.y, {
+      ...parsed,
+      title: linkTitle.trim(),
+      description: linkDescription.trim()
+    })
+    editor.createShape(shape).select(shape.id)
+    setLinkUrl('')
+    setLinkTitle('')
+    setLinkDescription('')
+    setLinkError(null)
+    setLinkDialogOpen(false)
+  }, [editor, linkDescription, linkTitle, linkUrl])
 
   useEffect(() => {
     if (!editor) return
@@ -666,6 +1100,7 @@ export function BoardEditor({
   const imageShape = selectedShape && isCNImageShape(selectedShape) ? selectedShape : null
   const fileShape = selectedShape && isCNFileShape(selectedShape) ? selectedShape : null
   const localVideoShape = selectedShape && isCNLocalVideoShape(selectedShape) ? selectedShape : null
+  const linkShape = selectedShape && isCNLinkShape(selectedShape) ? selectedShape : null
   const embeddedVideoShape =
     selectedShape && isCNEmbeddedVideoShape(selectedShape) ? selectedShape : null
   const timestampShape =
@@ -786,6 +1221,22 @@ export function BoardEditor({
     [editor, embeddedVideoShape]
   )
 
+  const updateLinkShape = useCallback(
+    (
+      props: Partial<
+        Pick<CNLinkShape['props'], 'url' | 'title' | 'description' | 'domain' | 'tags'>
+      >
+    ) => {
+      if (!editor || !linkShape) return
+      editor.updateShape<CNLinkShape>({
+        id: linkShape.id,
+        type: CN_LINK_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, linkShape]
+  )
+
   const updateTimestampShape = useCallback(
     (
       props: Partial<
@@ -847,7 +1298,9 @@ export function BoardEditor({
       exportScope === 'selection' ? previousSelection : [...editor.getCurrentPageShapeIds()]
     if (exportIds.length === 0) {
       setNotice(
-        exportScope === 'selection' ? 'Select at least one object to export.' : 'The board is empty.'
+        exportScope === 'selection'
+          ? 'Select at least one object to export.'
+          : 'The board is empty.'
       )
       return
     }
@@ -1005,18 +1458,38 @@ export function BoardEditor({
       </header>
 
       <section className="relative flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1 overflow-hidden" data-testid="canvas-editor">
-          <TldrawEditor
-            store={store}
-            shapeUtils={CANVAS_SHAPE_UTILS}
-            bindingUtils={defaultBindingUtils}
-            assetUtils={defaultAssetUtils}
-            overlayUtils={defaultOverlayUtils}
-            tools={CANVAS_TOOLS}
-            initialState="select"
-            onMount={handleMount}
-            {...(licenseKey ? { licenseKey } : {})}
-          />
+        <div
+          className="relative min-w-0 flex-1 overflow-hidden"
+          data-testid="canvas-editor"
+          onDragOverCapture={(event) => {
+            if (Array.from(event.dataTransfer.files).some(imageImportFilename)) {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+            }
+          }}
+          onDropCapture={(event) => {
+            const file = Array.from(event.dataTransfer.files).find(imageImportFilename)
+            if (!file || !editor) return
+            event.preventDefault()
+            event.stopPropagation()
+            const point = editor.screenToPage({ x: event.clientX, y: event.clientY })
+            void importImageData(file, point)
+          }}
+        >
+          <BreakPointProvider>
+            <TldrawEditor
+              store={store}
+              components={CANVAS_COMPONENTS}
+              shapeUtils={CANVAS_SHAPE_UTILS}
+              bindingUtils={defaultBindingUtils}
+              assetUtils={defaultAssetUtils}
+              overlayUtils={defaultOverlayUtils}
+              tools={CANVAS_TOOLS}
+              initialState="select"
+              onMount={handleMount}
+              {...(licenseKey ? { licenseKey } : {})}
+            />
+          </BreakPointProvider>
 
           <nav className="canvas-toolbar" aria-label="Canvas tools">
             <ToolButton
@@ -1082,6 +1555,15 @@ export function BoardEditor({
               }}
             >
               <MonitorPlay size={18} />
+            </ToolButton>
+            <ToolButton
+              label="Add link card"
+              onClick={() => {
+                setLinkError(null)
+                setLinkDialogOpen(true)
+              }}
+            >
+              <Globe2 size={18} />
             </ToolButton>
             <ToolButton
               label="Attach file"
@@ -1353,6 +1835,48 @@ export function BoardEditor({
                   </>
                 )}
 
+                {linkShape && (
+                  <>
+                    <label className="canvas-property-group">
+                      <span>Title</span>
+                      <input
+                        type="text"
+                        value={linkShape.props.title}
+                        maxLength={500}
+                        onChange={(event) => updateLinkShape({ title: event.target.value })}
+                      />
+                    </label>
+                    <label className="canvas-property-group">
+                      <span>Description</span>
+                      <textarea
+                        value={linkShape.props.description}
+                        maxLength={4_000}
+                        rows={4}
+                        onChange={(event) => updateLinkShape({ description: event.target.value })}
+                      />
+                    </label>
+                    <div className="canvas-property-group">
+                      <span>URL</span>
+                      <p className="m-0 break-all text-xs font-normal text-muted">
+                        {linkShape.props.url}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      onClick={() => void window.canvasNote.app.openExternal(linkShape.props.url)}
+                    >
+                      <Globe2 size={15} /> Open link in browser
+                    </button>
+                    <TagsField
+                      id={linkShape.id}
+                      tags={linkShape.props.tags}
+                      placeholder="source, website"
+                      onChange={(tags) => updateLinkShape({ tags })}
+                    />
+                  </>
+                )}
+
                 {localVideoShape && (
                   <>
                     <label className="canvas-property-group">
@@ -1560,9 +2084,7 @@ export function BoardEditor({
               <select
                 value={exportScope}
                 disabled={exporting}
-                onChange={(event) =>
-                  setExportScope(event.target.value as 'all' | 'selection')
-                }
+                onChange={(event) => setExportScope(event.target.value as 'all' | 'selection')}
               >
                 <option value="all">Whole board</option>
                 <option value="selection">Selected objects</option>
@@ -1573,19 +2095,11 @@ export function BoardEditor({
                 <strong>JSON</strong>
                 <span>Editable .canvasnote data</span>
               </button>
-              <button
-                type="button"
-                disabled={exporting}
-                onClick={() => void exportVisual('png')}
-              >
+              <button type="button" disabled={exporting} onClick={() => void exportVisual('png')}>
                 <strong>PNG</strong>
                 <span>Rendered board image</span>
               </button>
-              <button
-                type="button"
-                disabled={exporting}
-                onClick={() => void exportVisual('pdf')}
-              >
+              <button type="button" disabled={exporting} onClick={() => void exportVisual('pdf')}>
                 <strong>PDF</strong>
                 <span>Printable board document</span>
               </button>
@@ -1763,6 +2277,75 @@ export function BoardEditor({
               </button>
               <button type="submit" className="is-primary">
                 Embed video
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {linkDialogOpen && (
+        <div className="canvas-dialog-backdrop">
+          <form
+            className="canvas-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="link-card-title"
+            onSubmit={(event) => {
+              event.preventDefault()
+              addLinkCard()
+            }}
+          >
+            <div className="canvas-dialog-header">
+              <div>
+                <p>Reference</p>
+                <h2 id="link-card-title">Add link card</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close link dialog"
+                onClick={() => setLinkDialogOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <label>
+              <span>URL</span>
+              <input
+                autoFocus
+                value={linkUrl}
+                placeholder="https://example.com/article"
+                onChange={(event) => {
+                  setLinkUrl(event.target.value)
+                  setLinkError(null)
+                }}
+              />
+            </label>
+            <label>
+              <span>Title (optional)</span>
+              <input
+                value={linkTitle}
+                maxLength={500}
+                placeholder="Useful reference"
+                onChange={(event) => setLinkTitle(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Description (optional)</span>
+              <textarea
+                value={linkDescription}
+                maxLength={4_000}
+                rows={3}
+                placeholder="Why this link matters"
+                onChange={(event) => setLinkDescription(event.target.value)}
+              />
+            </label>
+            {linkError && <p className="canvas-dialog-error">{linkError}</p>}
+            <div className="canvas-dialog-actions">
+              <button type="button" onClick={() => setLinkDialogOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="is-primary">
+                Add link
               </button>
             </div>
           </form>

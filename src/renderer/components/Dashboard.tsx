@@ -545,74 +545,78 @@ export function Dashboard({
                 </button>
               ) : (
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <label className="relative min-w-0 sm:w-72">
-                  <span className="sr-only">Search boards</span>
-                  <Search
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
-                    size={16}
-                  />
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(event) => onQueryChange(event.target.value)}
-                    placeholder="Search boards"
-                    className="h-11 w-full rounded-xl border border-line bg-surface pl-9 pr-9 text-sm outline-none transition placeholder:text-faint focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
-                  />
-                  {query && (
-                    <button
-                      type="button"
-                      onClick={() => onQueryChange('')}
-                      className={`absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-faint hover:bg-canvas hover:text-ink ${focusRing}`}
-                      aria-label="Clear board search"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </label>
+                  <label className="relative min-w-0 sm:w-72">
+                    <span className="sr-only">Search boards</span>
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
+                      size={16}
+                    />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(event) => onQueryChange(event.target.value)}
+                      placeholder="Search boards"
+                      className="h-11 w-full rounded-xl border border-line bg-surface pl-9 pr-9 text-sm outline-none transition placeholder:text-faint focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        onClick={() => onQueryChange('')}
+                        className={`absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-faint hover:bg-canvas hover:text-ink ${focusRing}`}
+                        aria-label="Clear board search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </label>
 
-                <div className="flex items-center gap-2">
-                  <div
-                    className="flex rounded-xl border border-line bg-surface p-1"
-                    aria-label="Board view"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onViewChange('grid')}
-                      className={`grid size-8 place-items-center rounded-lg transition ${focusRing} ${
-                        view === 'grid' ? 'bg-accent-soft text-accent' : 'text-muted hover:text-ink'
-                      }`}
-                      aria-label="Grid view"
-                      aria-pressed={view === 'grid'}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex rounded-xl border border-line bg-surface p-1"
+                      aria-label="Board view"
                     >
-                      <Grid2X2 size={15} />
+                      <button
+                        type="button"
+                        onClick={() => onViewChange('grid')}
+                        className={`grid size-8 place-items-center rounded-lg transition ${focusRing} ${
+                          view === 'grid'
+                            ? 'bg-accent-soft text-accent'
+                            : 'text-muted hover:text-ink'
+                        }`}
+                        aria-label="Grid view"
+                        aria-pressed={view === 'grid'}
+                      >
+                        <Grid2X2 size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onViewChange('list')}
+                        className={`grid size-8 place-items-center rounded-lg transition ${focusRing} ${
+                          view === 'list'
+                            ? 'bg-accent-soft text-accent'
+                            : 'text-muted hover:text-ink'
+                        }`}
+                        aria-label="List view"
+                        aria-pressed={view === 'list'}
+                      >
+                        <List size={16} />
+                      </button>
+                    </div>
+                    <button type="button" className="primary-button" onClick={openCreateForm}>
+                      <Plus size={16} />
+                      New board
                     </button>
                     <button
                       type="button"
-                      onClick={() => onViewChange('list')}
-                      className={`grid size-8 place-items-center rounded-lg transition ${focusRing} ${
-                        view === 'list' ? 'bg-accent-soft text-accent' : 'text-muted hover:text-ink'
-                      }`}
-                      aria-label="List view"
-                      aria-pressed={view === 'list'}
+                      className="icon-button"
+                      aria-label="Import board"
+                      title="Import .canvasnote board"
+                      disabled={busy}
+                      onClick={() => void onImportBoard()}
                     >
-                      <List size={16} />
+                      <FileInput size={16} />
                     </button>
                   </div>
-                  <button type="button" className="primary-button" onClick={openCreateForm}>
-                    <Plus size={16} />
-                    New board
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label="Import board"
-                    title="Import .canvasnote board"
-                    disabled={busy}
-                    onClick={() => void onImportBoard()}
-                  >
-                    <FileInput size={16} />
-                  </button>
-                </div>
                 </div>
               )}
             </div>
@@ -706,90 +710,90 @@ export function Dashboard({
               </div>
             ) : (
               <>
-            <div className="mt-7 flex items-center justify-between border-b border-line pb-3">
-              <p className="text-xs font-medium text-muted">
-                {visibleBoards.length} {visibleBoards.length === 1 ? 'board' : 'boards'}
-                {query ? ` matching “${query.trim()}”` : ''}
-              </p>
-              {section === 'recent' && sectionCounts.recent > visibleBoards.length && (
-                <button
-                  type="button"
-                  onClick={() => onSectionChange('all')}
-                  className={`text-xs font-semibold text-accent hover:underline ${focusRing}`}
-                >
-                  View all boards
-                </button>
-              )}
-            </div>
-
-            {visibleBoards.length > 0 ? (
-              <div
-                className={
-                  view === 'grid'
-                    ? 'mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
-                    : 'mt-4 space-y-2'
-                }
-              >
-                {visibleBoards.map((board) => (
-                  <BoardItem
-                    key={board.id}
-                    board={board}
-                    view={view}
-                    onOpen={() => onOpenBoard(board.id)}
-                    onToggleFavourite={() => onToggleFavorite(board.id, !board.isFavorite)}
-                    onTrash={() => onTrashBoard(board.id)}
-                    onRestore={() => onRestoreBoard(board.id)}
-                    onDelete={() => {
-                      if (
-                        window.confirm(
-                          `Delete “${board.title}” permanently? This cannot be undone.`
-                        )
-                      ) {
-                        onDeleteBoard(board.id)
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="grid min-h-72 place-items-center rounded-xl border border-dashed border-line bg-surface/45 px-5 py-12 text-center">
-                <div className="max-w-sm">
-                  <span className="mx-auto grid size-11 place-items-center rounded-xl bg-accent-soft text-accent">
-                    {query ? (
-                      <Search size={19} />
-                    ) : section === 'trash' ? (
-                      <Trash2 size={19} />
-                    ) : section === 'favorites' ? (
-                      <Star size={19} />
-                    ) : (
-                      <LayoutGrid size={19} />
-                    )}
-                  </span>
-                  <h2 className="mt-4 text-base font-semibold">{emptyTitle}</h2>
-                  <p className="mt-1.5 text-sm leading-6 text-muted">{emptyDescription}</p>
-                  {query ? (
+                <div className="mt-7 flex items-center justify-between border-b border-line pb-3">
+                  <p className="text-xs font-medium text-muted">
+                    {visibleBoards.length} {visibleBoards.length === 1 ? 'board' : 'boards'}
+                    {query ? ` matching “${query.trim()}”` : ''}
+                  </p>
+                  {section === 'recent' && sectionCounts.recent > visibleBoards.length && (
                     <button
                       type="button"
-                      onClick={() => onQueryChange('')}
-                      className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-soft ${focusRing}`}
+                      onClick={() => onSectionChange('all')}
+                      className={`text-xs font-semibold text-accent hover:underline ${focusRing}`}
                     >
-                      Clear search
+                      View all boards
                     </button>
-                  ) : (
-                    (section === 'recent' || section === 'all') && (
-                      <button
-                        type="button"
-                        onClick={openCreateForm}
-                        className="primary-button mt-5"
-                      >
-                        <Plus size={16} />
-                        Create board
-                      </button>
-                    )
                   )}
                 </div>
-              </div>
-            )}
+
+                {visibleBoards.length > 0 ? (
+                  <div
+                    className={
+                      view === 'grid'
+                        ? 'mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+                        : 'mt-4 space-y-2'
+                    }
+                  >
+                    {visibleBoards.map((board) => (
+                      <BoardItem
+                        key={board.id}
+                        board={board}
+                        view={view}
+                        onOpen={() => onOpenBoard(board.id)}
+                        onToggleFavourite={() => onToggleFavorite(board.id, !board.isFavorite)}
+                        onTrash={() => onTrashBoard(board.id)}
+                        onRestore={() => onRestoreBoard(board.id)}
+                        onDelete={() => {
+                          if (
+                            window.confirm(
+                              `Delete “${board.title}” permanently? This cannot be undone.`
+                            )
+                          ) {
+                            onDeleteBoard(board.id)
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid min-h-72 place-items-center rounded-xl border border-dashed border-line bg-surface/45 px-5 py-12 text-center">
+                    <div className="max-w-sm">
+                      <span className="mx-auto grid size-11 place-items-center rounded-xl bg-accent-soft text-accent">
+                        {query ? (
+                          <Search size={19} />
+                        ) : section === 'trash' ? (
+                          <Trash2 size={19} />
+                        ) : section === 'favorites' ? (
+                          <Star size={19} />
+                        ) : (
+                          <LayoutGrid size={19} />
+                        )}
+                      </span>
+                      <h2 className="mt-4 text-base font-semibold">{emptyTitle}</h2>
+                      <p className="mt-1.5 text-sm leading-6 text-muted">{emptyDescription}</p>
+                      {query ? (
+                        <button
+                          type="button"
+                          onClick={() => onQueryChange('')}
+                          className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-soft ${focusRing}`}
+                        >
+                          Clear search
+                        </button>
+                      ) : (
+                        (section === 'recent' || section === 'all') && (
+                          <button
+                            type="button"
+                            onClick={openCreateForm}
+                            className="primary-button mt-5"
+                          >
+                            <Plus size={16} />
+                            Create board
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

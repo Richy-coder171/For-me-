@@ -5,6 +5,7 @@ import { CNEmbeddedVideoShapeUtil } from './EmbeddedVideoShapeUtil'
 import { CNFileShapeUtil } from './FileShapeUtil'
 import { CNImageShapeUtil } from './ImageShapeUtil'
 import { CNLocalVideoShapeUtil } from './LocalVideoShapeUtil'
+import { CNLinkShapeUtil } from './LinkShapeUtil'
 import { CNNoteShapeUtil } from './NoteShapeUtil'
 import { CNTimestampNoteShapeUtil } from './TimestampNoteShapeUtil'
 
@@ -13,6 +14,7 @@ export * from './EmbeddedVideoShapeUtil'
 export * from './FileShapeUtil'
 export * from './ImageShapeUtil'
 export * from './LocalVideoShapeUtil'
+export * from './LinkShapeUtil'
 export * from './MediaShapeTypes'
 export * from './NoteShapeUtil'
 export * from './TimestampNoteShapeUtil'
@@ -25,6 +27,7 @@ export const canvasShapeUtils = [
   CNImageShapeUtil,
   CNFileShapeUtil,
   CNLocalVideoShapeUtil,
+  CNLinkShapeUtil,
   CNEmbeddedVideoShapeUtil,
   CNTimestampNoteShapeUtil
 ] as const

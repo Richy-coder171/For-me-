@@ -15,6 +15,7 @@ import {
   CN_IMAGE_TYPE,
   CN_EMBEDDED_VIDEO_TYPE,
   CN_LOCAL_VIDEO_TYPE,
+  CN_LINK_TYPE,
   CN_NOTE_TYPE,
   CN_TIMESTAMP_NOTE_TYPE,
   CNChecklistShapeUtil,
@@ -22,6 +23,7 @@ import {
   CNFileShapeUtil,
   CNImageShapeUtil,
   CNLocalVideoShapeUtil,
+  CNLinkShapeUtil,
   CNNoteShapeUtil,
   CNTimestampNoteShapeUtil,
   NOTE_MIN_HEIGHT,
@@ -30,6 +32,7 @@ import {
   createCNChecklistItem,
   createCNChecklistShape,
   createCNNoteShape,
+  createCNLinkShape,
   getDefaultCNChecklistProps,
   getDefaultCNNoteProps,
   shapeUtils
@@ -44,6 +47,7 @@ describe('CanvasNote custom shapes', () => {
       CNImageShapeUtil,
       CNFileShapeUtil,
       CNLocalVideoShapeUtil,
+      CNLinkShapeUtil,
       CNEmbeddedVideoShapeUtil,
       CNTimestampNoteShapeUtil
     ])
@@ -52,6 +56,7 @@ describe('CanvasNote custom shapes', () => {
     expect(CNImageShapeUtil.type).toBe(CN_IMAGE_TYPE)
     expect(CNFileShapeUtil.type).toBe(CN_FILE_TYPE)
     expect(CNLocalVideoShapeUtil.type).toBe(CN_LOCAL_VIDEO_TYPE)
+    expect(CNLinkShapeUtil.type).toBe(CN_LINK_TYPE)
     expect(CNEmbeddedVideoShapeUtil.type).toBe(CN_EMBEDDED_VIDEO_TYPE)
     expect(CNTimestampNoteShapeUtil.type).toBe(CN_TIMESTAMP_NOTE_TYPE)
   })
@@ -94,5 +99,20 @@ describe('CanvasNote custom shapes', () => {
     expect([NOTE_MIN_WIDTH, NOTE_MIN_HEIGHT, CHECKLIST_MIN_WIDTH, CHECKLIST_MIN_HEIGHT]).toEqual([
       220, 140, 240, 170
     ])
+  })
+
+  it('creates a portable link card', () => {
+    const link = createCNLinkShape(80, 120, {
+      url: 'https://example.com/guide',
+      domain: 'example.com',
+      title: 'Guide'
+    })
+
+    expect(link).toMatchObject({
+      type: CN_LINK_TYPE,
+      x: 80,
+      y: 120,
+      props: { url: 'https://example.com/guide', domain: 'example.com', title: 'Guide' }
+    })
   })
 })

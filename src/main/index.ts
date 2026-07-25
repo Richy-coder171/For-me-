@@ -19,10 +19,29 @@ let mainWindow: BrowserWindow | null = null
 const workspaces = new WorkspaceService()
 const database = new DatabaseService()
 const media = new MediaService(() => workspaces.activeRoot)
-const exports = new ExportService()
+const testExportDirectory = !app.isPackaged
+  ? process.env.CANVASNOTE_TEST_EXPORT_DIRECTORY
+  : undefined
+const exports = new ExportService(
+  testExportDirectory
+    ? {
+        showSaveDialog: async (_parent, options) => {
+          const extension = options.filters?.[0]?.extensions[0]
+          if (!extension || !['canvasnote', 'png', 'pdf'].includes(extension)) {
+            throw new Error('Unsupported test export format.')
+          }
+          return {
+            canceled: false,
+            filePath: path.join(testExportDirectory, `canvasnote-e2e.${extension}`)
+          }
+        }
+      }
+    : {}
+)
 const settings = new SettingsService(() => workspaces.activeRoot)
 let disposeHandlers: (() => void) | null = null
 let closeApproved = false
+let closeFallback: ReturnType<typeof setTimeout> | null = null
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -56,6 +75,26 @@ function rendererDocumentUrl(): string {
   return pathToFileURL(path.join(__dirname, '../renderer/index.html')).toString()
 }
 
+function isTrustedRendererPermission(
+  webContents: Electron.WebContents | null,
+  requestingUrl: string | undefined,
+  isMainFrame: boolean
+): boolean {
+  if (!mainWindow || !isMainFrame || !requestingUrl) return false
+  if (webContents && webContents !== mainWindow.webContents) return false
+
+  try {
+    const requested = new URL(requestingUrl)
+    const renderer = new URL(rendererDocumentUrl())
+    if (renderer.protocol !== 'file:') return requested.origin === renderer.origin
+    requested.search = ''
+    requested.hash = ''
+    return requested.href === renderer.href
+  } catch {
+    return false
+  }
+}
+
 function createWindow(): void {
   closeApproved = false
   mainWindow = new BrowserWindow({
@@ -85,8 +124,14 @@ function createWindow(): void {
     if (closeApproved || !mainWindow) return
     event.preventDefault()
     mainWindow.webContents.send(IPC_CHANNELS.appCloseRequested)
+    closeFallback ??= setTimeout(() => {
+      closeApproved = true
+      mainWindow?.close()
+    }, 10_000)
   })
   mainWindow.on('closed', () => {
+    if (closeFallback) clearTimeout(closeFallback)
+    closeFallback = null
     mainWindow = null
   })
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -102,6 +147,8 @@ function createWindow(): void {
 app.whenReady().then(() => {
   ipcMain.on(IPC_CHANNELS.appCloseReady, (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return
+    if (closeFallback) clearTimeout(closeFallback)
+    closeFallback = null
     closeApproved = true
     mainWindow.close()
   })
@@ -117,6 +164,19 @@ app.whenReady().then(() => {
       }
     })
   })
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, _requestingOrigin, details) =>
+      (permission === 'clipboard-read' || permission === 'clipboard-sanitized-write') &&
+      isTrustedRendererPermission(webContents, details.requestingUrl, details.isMainFrame)
+  )
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      callback(
+        (permission === 'clipboard-read' || permission === 'clipboard-sanitized-write') &&
+          isTrustedRendererPermission(webContents, details.requestingUrl, details.isMainFrame)
+      )
+    }
+  )
 
   protocol.handle(MEDIA_SCHEME, async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {

@@ -13,6 +13,7 @@ import type { TemplateId } from './templates'
 
 export const IPC_CHANNELS = {
   appInfo: 'app:info',
+  appOpenExternal: 'app:open-external',
   appCloseRequested: 'app:close-requested',
   appCloseReady: 'app:close-ready',
   workspaceCreate: 'workspace:create',
@@ -32,6 +33,7 @@ export const IPC_CHANNELS = {
   boardRestore: 'board:restore',
   boardDelete: 'board:delete',
   mediaImport: 'media:import',
+  mediaImportImageData: 'media:import-image-data',
   mediaExists: 'media:exists',
   mediaOpen: 'media:open',
   mediaReveal: 'media:reveal',
@@ -51,6 +53,7 @@ export interface AppInfo {
 export interface CanvasNoteApi {
   app: {
     getInfo: () => Promise<AppInfo>
+    openExternal: (url: string) => Promise<void>
     onCloseRequested: (callback: () => void) => () => void
     readyToClose: () => void
   }
@@ -76,6 +79,7 @@ export interface CanvasNoteApi {
   }
   media: {
     importFile: (kind: MediaKind) => Promise<ImportedMedia | null>
+    importImageData: (filename: string, data: Uint8Array) => Promise<ImportedMedia>
     toUrl: (relativePath: string) => string
     exists: (relativePath: string) => Promise<boolean>
     open: (relativePath: string) => Promise<void>

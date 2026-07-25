@@ -4,6 +4,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 
 import type { BoardFile, CanvasNode } from '../../shared/schemas/board'
+import { assertNoSymlinkEscapeSync } from '../security/pathValidation'
 
 const DATABASE_VERSION = 1
 
@@ -202,9 +203,13 @@ export class DatabaseService {
 
   initialize(workspaceRoot: string): void {
     this.close()
-    const dataDirectory = path.join(path.resolve(workspaceRoot), '.canvasnote')
+    const root = path.resolve(workspaceRoot)
+    const dataDirectory = path.join(root, '.canvasnote')
+    assertNoSymlinkEscapeSync(root, dataDirectory)
     mkdirSync(dataDirectory, { recursive: true })
-    const database = new Database(path.join(dataDirectory, 'index.sqlite3'))
+    const databasePath = path.join(dataDirectory, 'index.sqlite3')
+    assertNoSymlinkEscapeSync(root, databasePath)
+    const database = new Database(databasePath)
 
     try {
       database.pragma('foreign_keys = ON')
@@ -264,7 +269,7 @@ export class DatabaseService {
         'INSERT OR IGNORE INTO board_tags(board_id, tag_name) VALUES (?, ?)'
       )
       const insertMedia = database.prepare(
-        `INSERT INTO media (id, board_id, path, type, caption, created_at, updated_at)
+        `INSERT OR IGNORE INTO media (id, board_id, path, type, caption, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
 
@@ -312,7 +317,11 @@ export class DatabaseService {
   }
 
   searchBoardIds(query: string): string[] {
-    const tokens = query.normalize('NFKC').match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 20) ?? []
+    const tokens =
+      query
+        .normalize('NFKC')
+        .match(/[\p{L}\p{N}_-]+/gu)
+        ?.slice(0, 20) ?? []
     if (tokens.length === 0) return []
     const expression = tokens.map((token) => `"${token.replaceAll('"', '""')}"*`).join(' AND ')
     const rows = this.#getDatabase()

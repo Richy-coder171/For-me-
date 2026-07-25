@@ -5,7 +5,7 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -15,6 +15,7 @@ let testRoot: string
 let imageFixture: string
 let fileFixture: string
 let videoFixture: string
+let exportDirectory: string
 
 // Chromium's BSD-licensed 1,746-byte black/white VP8 test video:
 // https://chromium.googlesource.com/chromium/src/+/38.0.2125.92/media/test/data/blackwhite_yuv420p.webm
@@ -46,6 +47,8 @@ test.beforeAll(async () => {
   imageFixture = path.join(testRoot, 'sample.png')
   fileFixture = path.join(testRoot, 'research.txt')
   videoFixture = path.join(testRoot, 'sample.webm')
+  exportDirectory = path.join(testRoot, 'exports')
+  await mkdir(exportDirectory)
   await writeFile(
     imageFixture,
     Buffer.from(
@@ -58,6 +61,7 @@ test.beforeAll(async () => {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') environment[key] = value
   }
+  environment.CANVASNOTE_TEST_EXPORT_DIRECTORY = exportDirectory
   application = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(testRoot, 'user-data')}`],
     cwd: process.cwd(),
@@ -115,6 +119,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByPlaceholder('Board title').fill('Video research')
   await page.locator('form').getByRole('button', { name: 'Create board', exact: true }).click()
   await expect(page.getByTestId('canvas-editor')).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Canvas minimap' })).toBeVisible()
 
   await page.getByRole('button', { name: 'New note' }).click()
   await page.getByLabel('Note title').fill('Opening idea')
@@ -124,6 +129,14 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByLabel('Checklist title').fill('Review steps')
   await page.getByRole('button', { name: 'Add item' }).click()
   await page.getByLabel('Checklist item').fill('Watch the source')
+
+  const frames = page.locator('[data-shape-type="frame"]')
+  await page.getByRole('button', { name: 'New frame' }).click()
+  await expect(frames).toHaveCount(1)
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(frames).toHaveCount(0)
+  await page.getByRole('button', { name: 'Redo' }).click()
+  await expect(frames).toHaveCount(1)
 
   await application.evaluate(({ dialog }, fixture) => {
     Object.defineProperty(dialog, 'showOpenDialog', {
@@ -135,13 +148,42 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByLabel('Alternative text').fill('A one pixel test image')
   await page.getByLabel('Caption').fill('Imported reference')
   await page.getByRole('button', { name: 'Zoom to fit' }).click()
-  const importedImage = page.locator('img[src^="canvasnote-media://"]')
-  await expect(importedImage).toHaveCount(1)
+  const importedImages = page.locator('img[src^="canvasnote-media://"]')
+  await expect(importedImages).toHaveCount(1)
+  const importedImage = importedImages.first()
   await expect
     .poll(() =>
       importedImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
     )
     .toBe(true)
+
+  const pngFixtureBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+  await page.getByTestId('canvas-editor').evaluate((canvas, encoded) => {
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0))
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+    const bounds = canvas.getBoundingClientRect()
+    for (const type of ['dragover', 'drop']) {
+      canvas.dispatchEvent(
+        new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: bounds.left + bounds.width * 0.62,
+          clientY: bounds.top + bounds.height * 0.56,
+          dataTransfer: transfer
+        })
+      )
+    }
+  }, pngFixtureBase64)
+  await expect(page.locator('img[src^="canvasnote-media://"]')).toHaveCount(2)
+
+  await application.evaluate(({ clipboard, nativeImage }, encoded) => {
+    clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(encoded, 'base64')))
+  }, pngFixtureBase64)
+  await page.getByTestId('canvas-editor').click({ position: { x: 650, y: 420 } })
+  await page.keyboard.press('Control+V')
+  await expect(page.locator('img[src^="canvasnote-media://"]')).toHaveCount(3)
 
   const mediaUrl = await importedImage.getAttribute('src')
   expect(mediaUrl).toBeTruthy()
@@ -218,6 +260,104 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(embeddedVideo).toHaveAttribute('src', /dQw4w9WgXcQ/)
   await page.getByLabel('Caption').fill('YouTube reference')
 
+  await page.getByRole('button', { name: 'Add link card' }).click()
+  await page.getByLabel('URL').fill('example.com/research')
+  await page.getByLabel('Title (optional)').fill('Reference guide')
+  await page.getByLabel('Description (optional)').fill('A safe external research link')
+  await page.getByRole('button', { name: 'Add link', exact: true }).click()
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
+  await expect(page.getByText('Reference guide')).toBeVisible()
+
+  const linkShapes = page.locator('[data-shape-type="cn-link"]')
+  const movedLink = linkShapes.first()
+  await movedLink.click({ button: 'right', position: { x: 80, y: 50 } })
+  await expect(page.getByRole('menu', { name: 'Canvas context menu' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /Copy/ })).toBeEnabled()
+  await page.getByRole('menuitem', { name: /Copy/ }).click()
+  await expect
+    .poll(() => application.evaluate(({ clipboard }) => clipboard.readText()))
+    .toContain('Reference guide')
+
+  const beforeMove = await movedLink.boundingBox()
+  expect(beforeMove).toBeTruthy()
+  await page.mouse.move(
+    beforeMove!.x + beforeMove!.width / 2,
+    beforeMove!.y + beforeMove!.height / 2
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    beforeMove!.x + beforeMove!.width / 2 + 40,
+    beforeMove!.y + beforeMove!.height / 2 + 30,
+    { steps: 6 }
+  )
+  await page.mouse.up()
+  await expect
+    .poll(async () => (await movedLink.boundingBox())?.x)
+    .toBeGreaterThan(beforeMove!.x + 20)
+
+  const beforeResize = await movedLink.boundingBox()
+  expect(beforeResize).toBeTruthy()
+  await page.mouse.move(
+    beforeResize!.x + beforeResize!.width,
+    beforeResize!.y + beforeResize!.height
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    beforeResize!.x + beforeResize!.width + 45,
+    beforeResize!.y + beforeResize!.height + 30,
+    { steps: 6 }
+  )
+  await page.mouse.up()
+  await expect
+    .poll(async () => (await movedLink.boundingBox())?.width)
+    .toBeGreaterThan(beforeResize!.width + 20)
+
+  await page
+    .getByRole('complementary', { name: 'Properties panel' })
+    .getByRole('button', { name: 'Duplicate' })
+    .click()
+  await expect(page.getByText('Reference guide')).toHaveCount(2)
+
+  const canvasApplication = page.getByRole('application', { name: 'tldraw' })
+  await application.evaluate(({ clipboard }) => clipboard.clear())
+  await canvasApplication.focus()
+  await expect(canvasApplication).toHaveClass(/tl-container__focused/)
+  await page.keyboard.press('Control+C')
+  await expect
+    .poll(() =>
+      application.evaluate(({ clipboard }) => ({
+        formats: clipboard.availableFormats(),
+        html: clipboard.readHTML(),
+        text: clipboard.readText()
+      }))
+    )
+    .toMatchObject({
+      html: expect.stringContaining('data-tldraw'),
+      text: expect.stringContaining('Reference guide')
+    })
+  await page.keyboard.press('Control+V')
+  await expect(page.getByText('Reference guide')).toHaveCount(3)
+  await page.keyboard.press('Control+X')
+  await expect(page.getByText('Reference guide')).toHaveCount(2)
+  await page.keyboard.press('Control+Z')
+  await expect(page.getByText('Reference guide')).toHaveCount(3)
+
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
+  const noteShape = page.locator('[data-shape-type="cn-note"]').first()
+  const videoShape = page.locator('[data-shape-type="cn-local-video"]').first()
+  const noteBox = await noteShape.boundingBox()
+  const videoBox = await videoShape.boundingBox()
+  expect(noteBox).toBeTruthy()
+  expect(videoBox).toBeTruthy()
+  await page.getByRole('button', { name: 'Draw connection' }).click()
+  await page.mouse.move(noteBox!.x + noteBox!.width - 3, noteBox!.y + noteBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(videoBox!.x + 3, videoBox!.y + videoBox!.height / 2, {
+    steps: 8
+  })
+  await page.mouse.up()
+  await expect(page.locator('[data-shape-type="arrow"]')).toHaveCount(1)
+
   const title = page.getByLabel('Board title')
   await title.fill('Edited video research')
   await expect(page.getByText('Unsaved changes')).toBeVisible()
@@ -248,22 +388,39 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByText('research.txt', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Interview clip')).toBeVisible()
   await expect(page.getByText('Key interview moment')).toBeVisible()
+  await expect(page.getByText('Reference guide')).toHaveCount(3)
   await expect(
     page.locator('iframe[src^="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"]')
   ).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Export board' }).click()
   await expect(page.getByRole('dialog', { name: 'Export board' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /^JSON/ })).toBeEnabled()
-  await expect(page.getByRole('button', { name: /^PNG/ })).toBeEnabled()
-  await expect(page.getByRole('button', { name: /^PDF/ })).toBeEnabled()
-  await page.getByRole('button', { name: 'Close export dialog' }).click()
+  await page.getByRole('button', { name: /^JSON/ }).click()
+  await expect(page.getByText('Board JSON exported.')).toBeVisible()
+  await page.getByRole('button', { name: 'Export board' }).click()
+  await page.getByRole('button', { name: /^PNG/ }).click()
+  await expect(page.getByText('PNG exported.')).toBeVisible()
+  await page.getByRole('button', { name: 'Export board' }).click()
+  await page.getByRole('button', { name: /^PDF/ }).click()
+  await expect(page.getByText('PDF exported.')).toBeVisible()
+
+  const exportedBoard = JSON.parse(
+    await readFile(path.join(exportDirectory, 'canvasnote-e2e.canvasnote'), 'utf8')
+  ) as { format: string; nodes: Array<{ type: string }> }
+  const exportedPng = await readFile(path.join(exportDirectory, 'canvasnote-e2e.png'))
+  const exportedPdf = await readFile(path.join(exportDirectory, 'canvasnote-e2e.pdf'))
+  expect(exportedBoard.format).toBe('canvasnote-board')
+  expect(exportedBoard.nodes.filter(({ type }) => type === 'link')).toHaveLength(3)
+  expect([...exportedPng.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+  expect(exportedPng.readUInt32BE(16)).toBeGreaterThan(0)
+  expect(exportedPng.readUInt32BE(20)).toBeGreaterThan(0)
+  expect(exportedPdf.subarray(0, 4).toString('ascii')).toBe('%PDF')
 
   const manifest = JSON.parse(
     await readFile(path.join(testRoot, 'E2E Workspace', 'workspace.json'), 'utf8')
   ) as { format: string }
   expect(manifest.format).toBe('canvasnote-workspace')
-  expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'images'))).toHaveLength(1)
+  expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'images'))).toHaveLength(3)
   expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'videos'))).toHaveLength(1)
   const copiedFiles = await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'files'))
   expect(copiedFiles).toHaveLength(1)
@@ -309,7 +466,6 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByRole('button', { name: 'Zoom to fit' }).click()
   await expect(page.getByText('Research question')).toBeVisible()
   await expect(page.getByText('What do I want to learn?')).toBeVisible()
-
 })
 
 test('flushes a pending edit on close and restores it after restart', async () => {
@@ -331,6 +487,7 @@ test('flushes a pending edit on close and restores it after restart', async () =
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') environment[key] = value
   }
+  environment.CANVASNOTE_TEST_EXPORT_DIRECTORY = exportDirectory
   application = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(testRoot, 'user-data')}`],
     cwd: process.cwd(),

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -7,6 +7,7 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { DatabaseService } from '../../src/main/services/databaseService'
+import { boardFileSchema } from '../../src/shared/schemas/board'
 import { createBoardFromTemplate } from '../../src/shared/templates'
 
 describe('DatabaseService', () => {
@@ -44,6 +45,30 @@ describe('DatabaseService', () => {
     )
     service.indexBoardContent(indexedBoard)
 
+    const image = {
+      id: 'image-one',
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 200,
+      rotation: 0,
+      locked: false,
+      tags: ['reference'],
+      mediaId: 'media-one',
+      mediaPath: 'media/images/reference.png',
+      caption: 'Reference',
+      altText: '',
+      fit: 'contain' as const,
+      createdAt: '2026-07-25T08:00:00.000Z',
+      updatedAt: '2026-07-25T08:00:00.000Z'
+    }
+    const duplicatedMediaBoard = boardFileSchema.parse({
+      ...indexedBoard,
+      nodes: [...indexedBoard.nodes, image, { ...image, id: 'image-copy' }]
+    })
+    expect(() => service.indexBoardContent(duplicatedMediaBoard)).not.toThrow()
+
     const database = new Database(databasePath, { readonly: true })
     expect(database.pragma('user_version', { simple: true })).toBe(1)
     expect(database.pragma('journal_mode', { simple: true })).toBe('wal')
@@ -52,6 +77,9 @@ describe('DatabaseService', () => {
     ).toEqual({ title: 'Video Research' })
     expect(service.searchBoardIds('strongest evidence')).toEqual(['board-one'])
     expect(service.searchTextByBoard().get('board-one')).toContain('What do I want to learn')
+    expect(
+      database.prepare('SELECT count(*) AS count FROM media WHERE board_id = ?').get('board-one')
+    ).toEqual({ count: 1 })
     database.close()
   })
 
@@ -88,5 +116,44 @@ describe('DatabaseService', () => {
     database.close()
 
     expect(() => service.initialize(root)).toThrow('newer than supported')
+  })
+
+  it('rejects a database directory symlink that escapes the workspace', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'canvasnote-database-outside-'))
+    const link = path.join(root, '.canvasnote')
+    try {
+      try {
+        await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') return
+        throw error
+      }
+
+      expect(() => service.initialize(root)).toThrow(/Symbolic links/)
+    } finally {
+      await unlink(link).catch(() => undefined)
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a dangling database-file symlink', async () => {
+    const dataDirectory = path.join(root, '.canvasnote')
+    const outside = await mkdtemp(path.join(tmpdir(), 'canvasnote-database-target-'))
+    const missingTarget = path.join(outside, 'future.sqlite3')
+    const link = path.join(dataDirectory, 'index.sqlite3')
+    await mkdir(dataDirectory)
+    try {
+      try {
+        await symlink(missingTarget, link, 'file')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') return
+        throw error
+      }
+
+      expect(() => service.initialize(root)).toThrow(/validate the workspace path/)
+    } finally {
+      await unlink(link).catch(() => undefined)
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 })

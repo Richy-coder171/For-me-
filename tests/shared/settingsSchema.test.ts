@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  appSettingsSchema,
-  DEFAULT_APP_SETTINGS
-} from '../../src/shared/schemas/settings'
+import { appSettingsSchema, DEFAULT_APP_SETTINGS } from '../../src/shared/schemas/settings'
 
 describe('appSettingsSchema', () => {
   it('accepts the local-first defaults', () => {
@@ -17,8 +14,6 @@ describe('appSettingsSchema', () => {
     expect(() =>
       appSettingsSchema.parse({ ...DEFAULT_APP_SETTINGS, mediaImportMode: 'link' })
     ).toThrow()
-    expect(() =>
-      appSettingsSchema.parse({ ...DEFAULT_APP_SETTINGS, unexpected: true })
-    ).toThrow()
+    expect(() => appSettingsSchema.parse({ ...DEFAULT_APP_SETTINGS, unexpected: true })).toThrow()
   })
 })

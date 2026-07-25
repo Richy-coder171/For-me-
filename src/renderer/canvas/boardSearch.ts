@@ -15,17 +15,32 @@ function fieldsFor(node: CanvasNode): { title: string; content: string } {
     case 'note':
       return { title: node.title || 'Note', content: node.content }
     case 'checklist':
-      return { title: node.title || 'Checklist', content: node.items.map(({ text }) => text).join(' ') }
+      return {
+        title: node.title || 'Checklist',
+        content: node.items.map(({ text }) => text).join(' ')
+      }
     case 'image':
-      return { title: node.caption || node.altText || 'Image', content: `${node.altText} ${node.caption}` }
+      return {
+        title: node.caption || node.altText || 'Image',
+        content: `${node.altText} ${node.caption}`
+      }
     case 'local-video':
       return { title: node.caption || 'Local video', content: node.caption }
     case 'embedded-video':
-      return { title: node.caption || `${node.provider} video`, content: `${node.url} ${node.caption}` }
+      return {
+        title: node.caption || `${node.provider} video`,
+        content: `${node.url} ${node.caption}`
+      }
     case 'timestamp-note':
-      return { title: `Timestamp ${Math.floor(node.timestampSeconds / 60)}:${String(Math.floor(node.timestampSeconds % 60)).padStart(2, '0')}`, content: node.content }
+      return {
+        title: `Timestamp ${Math.floor(node.timestampSeconds / 60)}:${String(Math.floor(node.timestampSeconds % 60)).padStart(2, '0')}`,
+        content: node.content
+      }
     case 'link':
-      return { title: node.title || node.domain, content: `${node.description} ${node.domain} ${node.url}` }
+      return {
+        title: node.title || node.domain,
+        content: `${node.description} ${node.domain} ${node.url}`
+      }
     case 'file':
       return { title: node.filename, content: `${node.filename} ${node.extension}` }
     case 'frame':
@@ -44,11 +59,7 @@ export function searchBoard(
   type: BoardSearchType = 'all',
   tag = ''
 ): BoardSearchResult[] {
-  const terms = query
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
+  const terms = query.normalize('NFKC').toLocaleLowerCase().split(/\s+/).filter(Boolean)
   const normalizedTag = tag.trim().toLocaleLowerCase()
   if (terms.length === 0 && !normalizedTag) return []
 
