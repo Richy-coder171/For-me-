@@ -273,7 +273,11 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await boardSearch.fill('key interview moment')
   await expect(page.getByRole('option', { name: /Key interview moment/i })).toBeVisible()
   await page.getByRole('option', { name: /Key interview moment/i }).click()
-  await expect(page.getByLabel('Timestamp note content')).toHaveValue('Key interview moment')
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Properties panel' })
+      .getByRole('heading', { name: 'Timestamp note' })
+  ).toBeVisible()
 
   await page.getByRole('button', { name: 'Back to boards' }).click()
   const dashboardSearch = page.getByRole('searchbox', { name: 'Search boards' })

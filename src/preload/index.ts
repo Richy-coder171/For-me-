@@ -10,7 +10,7 @@ import type {
 } from '../shared/schemas/board'
 import type { ImportedMedia, MediaKind } from '../shared/schemas/media'
 import type { WorkspaceSummary } from '../shared/schemas/workspace'
-import { templateIdSchema } from '../shared/templates'
+import type { TemplateId } from '../shared/templates'
 
 function workspaceName(value: string): string {
   const name = value.trim()
@@ -39,6 +39,20 @@ function revision(value: string): string {
 function mediaKind(value: string): MediaKind {
   if (value !== 'image' && value !== 'video' && value !== 'file') {
     throw new Error('Invalid media kind.')
+  }
+  return value
+}
+
+function boardTemplateId(value: string): TemplateId {
+  if (
+    value !== 'video-research' &&
+    value !== 'study-board' &&
+    value !== 'moodboard' &&
+    value !== 'project-planning' &&
+    value !== 'content-planning' &&
+    value !== 'learning-roadmap'
+  ) {
+    throw new Error('Invalid board template.')
   }
   return value
 }
@@ -104,7 +118,7 @@ const api: CanvasNoteApi = {
     createFromTemplate: (templateId) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.boardCreateFromTemplate,
-        templateIdSchema.parse(templateId)
+        boardTemplateId(templateId)
       ) as Promise<OpenBoard>,
     open: (boardId) =>
       ipcRenderer.invoke(IPC_CHANNELS.boardOpen, {
