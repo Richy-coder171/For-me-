@@ -8,6 +8,7 @@ import type {
   OpenBoard,
   WorkspaceStats
 } from '../shared/schemas/board'
+import type { ImportedMedia, MediaKind } from '../shared/schemas/media'
 import type { WorkspaceSummary } from '../shared/schemas/workspace'
 
 function workspaceName(value: string): string {
@@ -32,6 +33,42 @@ function boardTitle(value: string): string {
 function revision(value: string): string {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error('Invalid board revision.')
   return value
+}
+
+function mediaKind(value: string): MediaKind {
+  if (value !== 'image' && value !== 'video' && value !== 'file') {
+    throw new Error('Invalid media kind.')
+  }
+  return value
+}
+
+function mediaPath(value: string): string {
+  if (
+    !value ||
+    value.length > 1024 ||
+    value.includes('\0') ||
+    value.includes('\\') ||
+    !/^media\/(images|videos|files)\/[^/]+$/.test(value)
+  ) {
+    throw new Error('Invalid media path.')
+  }
+  let decoded = value
+  try {
+    for (let pass = 0; pass < 2; pass += 1) decoded = decodeURIComponent(decoded)
+  } catch {
+    throw new Error('Invalid media path.')
+  }
+  if (decoded.includes('\\') || decoded.split('/').some((part) => part === '.' || part === '..')) {
+    throw new Error('Invalid media path.')
+  }
+  return value
+}
+
+function mediaUrl(relativePath: string): string {
+  return `canvasnote-media://workspace/${mediaPath(relativePath)
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')}`
 }
 
 const api: CanvasNoteApi = {
@@ -88,6 +125,25 @@ const api: CanvasNoteApi = {
     deletePermanently: (boardId) =>
       ipcRenderer.invoke(IPC_CHANNELS.boardDelete, {
         boardId: stableId(boardId)
+      }) as Promise<void>
+  },
+  media: {
+    importFile: (kind) =>
+      ipcRenderer.invoke(IPC_CHANNELS.mediaImport, {
+        kind: mediaKind(kind)
+      }) as Promise<ImportedMedia | null>,
+    toUrl: mediaUrl,
+    exists: (relativePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.mediaExists, {
+        relativePath: mediaPath(relativePath)
+      }) as Promise<boolean>,
+    open: (relativePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.mediaOpen, {
+        relativePath: mediaPath(relativePath)
+      }) as Promise<void>,
+    reveal: (relativePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.mediaReveal, {
+        relativePath: mediaPath(relativePath)
       }) as Promise<void>
   }
 }

@@ -6,6 +6,7 @@ import {
   Frame,
   Group,
   Hand,
+  ImagePlus,
   Link2,
   ListChecks,
   LoaderCircle,
@@ -15,6 +16,7 @@ import {
   MousePointer2,
   PanelRightClose,
   PanelRightOpen,
+  Paperclip,
   Plus,
   Redo2,
   Save,
@@ -45,13 +47,22 @@ import { createAutosaveQueue, type AutosaveQueue } from './autosave'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
 import {
   CN_CHECKLIST_TYPE,
+  CN_FILE_TYPE,
+  CN_IMAGE_TYPE,
   CN_NOTE_TYPE,
   canvasShapeUtils,
   createChecklistShape,
+  createCNFileShape,
+  createCNImageShape,
   createNoteShape,
+  getNextShapePosition,
   isCNChecklistShape,
+  isCNFileShape,
+  isCNImageShape,
   isCNNoteShape,
   type CNChecklistShape,
+  type CNFileShape,
+  type CNImageShape,
   type CNNoteShape,
   type CNTextAlign,
   type CNTextBackground
@@ -82,7 +93,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
+    target instanceof HTMLButtonElement ||
+    target instanceof HTMLVideoElement ||
+    target instanceof HTMLIFrameElement ||
+    (target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        Boolean(target.closest('dialog,[role="dialog"],[role="menu"],[role="listbox"]'))))
   )
 }
 
@@ -141,6 +157,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   const [revision, setRevision] = useState(stored.revision)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
+  const [importing, setImporting] = useState<'image' | 'file' | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
@@ -161,9 +178,10 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
       { x: camera.x, y: camera.y, zoom: camera.z }
     )
 
-    if (result.diagnostics.some(({ code }) => code === 'invalid-board')) {
+    if (result.diagnostics.length > 0) {
       setSaveState('error')
-      throw new Error('CanvasNote could not validate this board for saving.')
+      setNotice('Save blocked: remove or repair the unsupported canvas object first.')
+      throw new Error('CanvasNote refused a lossy board save.')
     }
 
     try {
@@ -174,9 +192,6 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
       titleRef.current = saved.board.title
       setTitle(saved.board.title)
       setSaveState('saved')
-      if (result.diagnostics.length > 0) {
-        setNotice(`${result.diagnostics.length} unsupported canvas object(s) were not saved.`)
-      }
     } catch (error) {
       setSaveState('error')
       throw error
@@ -286,6 +301,38 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     [editor]
   )
 
+  const importMedia = useCallback(
+    async (kind: 'image' | 'file'): Promise<void> => {
+      if (!editor || importing) return
+      setImporting(kind)
+      try {
+        const media = await window.canvasNote.media.importFile(kind)
+        if (!media) return
+        const position = getNextShapePosition(editor, kind === 'image' ? 360 : 320, 240)
+        const shape =
+          kind === 'image'
+            ? createCNImageShape(position.x, position.y, {
+                mediaId: media.id,
+                mediaPath: media.relativePath,
+                altText: media.filename
+              })
+            : createCNFileShape(position.x, position.y, {
+                mediaId: media.id,
+                mediaPath: media.relativePath,
+                filename: media.filename,
+                extension: media.extension,
+                sizeBytes: media.sizeBytes
+              })
+        editor.createShape(shape).select(shape.id)
+      } catch {
+        setNotice(`CanvasNote could not import that ${kind}.`)
+      } finally {
+        setImporting(null)
+      }
+    },
+    [editor, importing]
+  )
+
   useEffect(() => {
     if (!editor) return
 
@@ -335,6 +382,9 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
         case 'f':
           createFrame()
           break
+        case 'i':
+          void importMedia('image')
+          break
         case 'l':
           setTool('arrow')
           break
@@ -359,7 +409,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [createFrame, editor, saveQueue, setTool])
+  }, [createFrame, editor, importMedia, saveQueue, setTool])
 
   const updateTextShape = useCallback(
     (props: {
@@ -393,6 +443,32 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     selectedShape && (isCNNoteShape(selectedShape) || isCNChecklistShape(selectedShape))
       ? selectedShape
       : null
+  const imageShape = selectedShape && isCNImageShape(selectedShape) ? selectedShape : null
+  const fileShape = selectedShape && isCNFileShape(selectedShape) ? selectedShape : null
+
+  const updateImageShape = useCallback(
+    (props: Partial<Pick<CNImageShape['props'], 'caption' | 'altText' | 'fit' | 'tags'>>) => {
+      if (!editor || !imageShape) return
+      editor.updateShape<CNImageShape>({
+        id: imageShape.id,
+        type: CN_IMAGE_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, imageShape]
+  )
+
+  const updateFileShape = useCallback(
+    (props: Partial<Pick<CNFileShape['props'], 'tags'>>) => {
+      if (!editor || !fileShape) return
+      editor.updateShape<CNFileShape>({
+        id: fileShape.id,
+        type: CN_FILE_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, fileShape]
+  )
 
   const goBack = async (): Promise<void> => {
     try {
@@ -525,6 +601,29 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
             >
               <ListChecks size={18} />
             </ToolButton>
+            <ToolButton
+              label="Import image"
+              shortcut="I"
+              disabled={importing !== null}
+              onClick={() => void importMedia('image')}
+            >
+              {importing === 'image' ? (
+                <LoaderCircle className="animate-spin" size={18} />
+              ) : (
+                <ImagePlus size={18} />
+              )}
+            </ToolButton>
+            <ToolButton
+              label="Attach file"
+              disabled={importing !== null}
+              onClick={() => void importMedia('file')}
+            >
+              {importing === 'file' ? (
+                <LoaderCircle className="animate-spin" size={18} />
+              ) : (
+                <Paperclip size={18} />
+              )}
+            </ToolButton>
             <ToolButton label="New frame" shortcut="F" onClick={createFrame}>
               <Frame size={18} />
             </ToolButton>
@@ -595,7 +694,11 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       ? isCNNoteShape(textShape)
                         ? 'Note'
                         : 'Checklist'
-                      : 'Object'
+                      : imageShape
+                        ? 'Image'
+                        : fileShape
+                          ? 'File'
+                          : 'Object'
                     : selectedShapeIds.length > 1
                       ? `${selectedShapeIds.length} objects`
                       : 'No selection'}
@@ -613,7 +716,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
 
             {!selectedShape && selectedShapeIds.length === 0 ? (
               <div className="px-4 py-5 text-xs leading-5 text-muted">
-                Select a note, checklist, frame, or connection to edit its properties.
+                Select a note, checklist, image, file, frame, or connection to edit its properties.
               </div>
             ) : !selectedShape ? (
               <div className="canvas-properties-body">
@@ -712,6 +815,96 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                         placeholder="research, ideas"
                         onBlur={(event) =>
                           updateTextShape({
+                            tags: event.target.value
+                              .split(',')
+                              .map((tag) => tag.trim())
+                              .filter(Boolean)
+                              .slice(0, 50)
+                          })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur()
+                        }}
+                      />
+                    </label>
+                  </>
+                )}
+
+                {imageShape && (
+                  <>
+                    <label className="canvas-property-group">
+                      <span>Caption</span>
+                      <input
+                        type="text"
+                        value={imageShape.props.caption}
+                        maxLength={2_000}
+                        onChange={(event) => updateImageShape({ caption: event.target.value })}
+                      />
+                    </label>
+                    <label className="canvas-property-group">
+                      <span>Alternative text</span>
+                      <input
+                        type="text"
+                        value={imageShape.props.altText}
+                        maxLength={2_000}
+                        onChange={(event) => updateImageShape({ altText: event.target.value })}
+                      />
+                    </label>
+                    <fieldset className="canvas-property-group">
+                      <legend>Fit</legend>
+                      <div className="canvas-segmented-control">
+                        {(['contain', 'cover'] as const).map((fit) => (
+                          <button
+                            type="button"
+                            key={fit}
+                            aria-pressed={imageShape.props.fit === fit}
+                            className={imageShape.props.fit === fit ? 'is-active' : ''}
+                            onClick={() => updateImageShape({ fit })}
+                          >
+                            {fit}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <label className="canvas-property-group">
+                      <span>Tags</span>
+                      <input
+                        key={`${imageShape.id}:${imageShape.props.tags.join(',')}`}
+                        type="text"
+                        defaultValue={imageShape.props.tags.join(', ')}
+                        placeholder="reference, visual"
+                        onBlur={(event) =>
+                          updateImageShape({
+                            tags: event.target.value
+                              .split(',')
+                              .map((tag) => tag.trim())
+                              .filter(Boolean)
+                              .slice(0, 50)
+                          })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur()
+                        }}
+                      />
+                    </label>
+                  </>
+                )}
+
+                {fileShape && (
+                  <>
+                    <div className="canvas-property-group">
+                      <span>File</span>
+                      <p className="m-0 break-all text-xs text-muted">{fileShape.props.filename}</p>
+                    </div>
+                    <label className="canvas-property-group">
+                      <span>Tags</span>
+                      <input
+                        key={`${fileShape.id}:${fileShape.props.tags.join(',')}`}
+                        type="text"
+                        defaultValue={fileShape.props.tags.join(', ')}
+                        placeholder="source, attachment"
+                        onBlur={(event) =>
+                          updateFileShape({
                             tags: event.target.value
                               .split(',')
                               .map((tag) => tag.trim())

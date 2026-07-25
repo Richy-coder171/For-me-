@@ -11,8 +11,12 @@ import {
   CHECKLIST_MIN_HEIGHT,
   CHECKLIST_MIN_WIDTH,
   CN_CHECKLIST_TYPE,
+  CN_FILE_TYPE,
+  CN_IMAGE_TYPE,
   CN_NOTE_TYPE,
   CNChecklistShapeUtil,
+  CNFileShapeUtil,
+  CNImageShapeUtil,
   CNNoteShapeUtil,
   NOTE_MIN_HEIGHT,
   NOTE_MIN_WIDTH,
@@ -28,9 +32,16 @@ import {
 describe('CanvasNote custom shapes', () => {
   it('exports one stable shape util list', () => {
     expect(shapeUtils).toBe(canvasShapeUtils)
-    expect(canvasShapeUtils).toEqual([CNNoteShapeUtil, CNChecklistShapeUtil])
+    expect(canvasShapeUtils).toEqual([
+      CNNoteShapeUtil,
+      CNChecklistShapeUtil,
+      CNImageShapeUtil,
+      CNFileShapeUtil
+    ])
     expect(CNNoteShapeUtil.type).toBe(CN_NOTE_TYPE)
     expect(CNChecklistShapeUtil.type).toBe(CN_CHECKLIST_TYPE)
+    expect(CNImageShapeUtil.type).toBe(CN_IMAGE_TYPE)
+    expect(CNFileShapeUtil.type).toBe(CN_FILE_TYPE)
   })
 
   it('creates schema-aligned notes and checklists', () => {

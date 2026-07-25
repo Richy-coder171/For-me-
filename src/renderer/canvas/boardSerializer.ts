@@ -17,6 +17,12 @@ import {
   connectionSchema,
   type BoardFile
 } from '../../shared/schemas/board'
+import {
+  CN_FILE_TYPE,
+  CN_IMAGE_TYPE,
+  type CNFileShape,
+  type CNImageShape
+} from './shapes/MediaShapeTypes'
 import type { CNChecklistShape, CNNoteShape } from './shapes/types'
 
 const CN_NOTE_TYPE = 'cn-note' as const
@@ -25,10 +31,18 @@ const CN_CHECKLIST_TYPE = 'cn-checklist' as const
 export const DEFAULT_TLDRAW_PAGE_ID = 'page:canvasnote' as TLPageId
 
 export type BoardTldrawRecord =
-  CNNoteShape | CNChecklistShape | TLFrameShape | TLGroupShape | TLArrowShape | TLArrowBinding
+  | CNNoteShape
+  | CNChecklistShape
+  | CNImageShape
+  | CNFileShape
+  | TLFrameShape
+  | TLGroupShape
+  | TLArrowShape
+  | TLArrowBinding
 
 export type BoardSerializerDiagnosticCode =
   | 'unsupported-node'
+  | 'unsupported-connection'
   | 'unsupported-shape'
   | 'invalid-shape'
   | 'duplicate-id'
@@ -155,6 +169,16 @@ function nextIndexFactory(): () => IndexKey {
   }
 }
 
+function isSupportedCanvasNode(node: BoardFile['nodes'][number]): boolean {
+  return (
+    node.type === 'note' ||
+    node.type === 'checklist' ||
+    node.type === 'image' ||
+    node.type === 'file' ||
+    node.type === 'frame'
+  )
+}
+
 /** Convert persisted CanvasNote data into document-scoped tldraw records. */
 export function boardToTldraw(
   board: BoardFile,
@@ -163,7 +187,7 @@ export function boardToTldraw(
   const records: BoardTldrawRecord[] = []
   const diagnostics: BoardSerializerDiagnostic[] = []
   const nextIndex = nextIndexFactory()
-  const nodeIds = new Set(board.nodes.map(({ id }) => id))
+  const renderableNodeIds = new Set(board.nodes.filter(isSupportedCanvasNode).map(({ id }) => id))
   const frameIds = new Set(board.nodes.filter(({ type }) => type === 'frame').map(({ id }) => id))
   const groups = new Map<string, BoardFile['nodes']>()
 
@@ -280,6 +304,42 @@ export function boardToTldraw(
           }
         })
         break
+      case 'image':
+        records.push({
+          ...base,
+          type: CN_IMAGE_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            mediaId: node.mediaId,
+            mediaPath: node.mediaPath,
+            caption: node.caption,
+            altText: node.altText,
+            fit: node.fit,
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
+      case 'file':
+        records.push({
+          ...base,
+          type: CN_FILE_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            mediaId: node.mediaId,
+            mediaPath: node.mediaPath,
+            filename: node.filename,
+            extension: node.extension,
+            sizeBytes: node.sizeBytes,
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
       case 'frame':
         records.push({
           ...base,
@@ -296,7 +356,7 @@ export function boardToTldraw(
         diagnostics.push({
           code: 'unsupported-node',
           id: node.id,
-          message: `CanvasNote node type ${node.type} is not supported by the Phase 3 canvas.`
+          message: `CanvasNote node type ${node.type} is not supported by this canvas.`
         })
     }
   }
@@ -304,11 +364,19 @@ export function boardToTldraw(
   for (const connection of board.connections) {
     const source = board.nodes.find(({ id }) => id === connection.sourceNodeId)
     const target = board.nodes.find(({ id }) => id === connection.targetNodeId)
-    if (!source || !target || !nodeIds.has(source.id) || !nodeIds.has(target.id)) {
+    if (!source || !target) {
       diagnostics.push({
         code: 'broken-connection',
         id: connection.id,
         message: `Connection ${connection.id} has a missing endpoint and was not loaded.`
+      })
+      continue
+    }
+    if (!renderableNodeIds.has(source.id) || !renderableNodeIds.has(target.id)) {
+      diagnostics.push({
+        code: 'unsupported-connection',
+        id: connection.id,
+        message: `Connection ${connection.id} is linked to an object this canvas cannot show yet.`
       })
       continue
     }
@@ -411,13 +479,21 @@ export function tldrawToBoard(
   const diagnostics: BoardSerializerDiagnostic[] = []
   const timestamp = typeof now === 'string' ? now : now.toISOString()
   const shapes = new Map(records.filter(isShapeRecord).map((shape) => [shape.id, shape] as const))
-  const nodes: BoardFile['nodes'] = []
+  const preservedNodes = source.nodes.filter((node) => !isSupportedCanvasNode(node))
+  const preservedNodeIds = new Set(preservedNodes.map(({ id }) => id))
+  const nodes: BoardFile['nodes'] = [...preservedNodes]
   const connections: BoardFile['connections'] = []
-  const ids = new Set<string>()
+  const ids = new Set(preservedNodeIds)
 
   for (const shape of shapes.values()) {
     if (shape.type === 'group' || shape.type === 'arrow') continue
-    if (shape.type !== CN_NOTE_TYPE && shape.type !== CN_CHECKLIST_TYPE && shape.type !== 'frame') {
+    if (
+      shape.type !== CN_NOTE_TYPE &&
+      shape.type !== CN_CHECKLIST_TYPE &&
+      shape.type !== CN_IMAGE_TYPE &&
+      shape.type !== CN_FILE_TYPE &&
+      shape.type !== 'frame'
+    ) {
       diagnostics.push({
         code: 'unsupported-shape',
         id: shape.id,
@@ -460,42 +536,69 @@ export function tldrawToBoard(
             ? shape.meta.canvasNoteUpdatedAt
             : timestamp
     }
-    const candidate =
-      shape.type === CN_NOTE_TYPE
-        ? {
-            ...common,
-            type: 'note',
-            title: props.title,
-            content: props.content,
-            background: props.background,
-            textColor: props.textColor,
-            fontSize: props.fontSize,
-            textAlign: props.textAlign
-          }
-        : shape.type === CN_CHECKLIST_TYPE
-          ? {
-              ...common,
-              type: 'checklist',
-              title: props.title,
-              items: props.items,
-              background: props.background,
-              textColor: props.textColor,
-              fontSize: props.fontSize,
-              textAlign: props.textAlign
-            }
-          : {
-              ...common,
-              type: 'frame',
-              title: props.name,
-              background:
-                typeof shape.meta.canvasNoteFrameBackground === 'string'
-                  ? shape.meta.canvasNoteFrameBackground
-                  : '#f7f7f5',
-              border:
-                typeof shape.meta.canvasNoteFrameBorder === 'string'
-                  ? shape.meta.canvasNoteFrameBorder
-                  : '#d7d8dc'
-            }
+    let candidate: unknown
+    switch (shape.type) {
+      case CN_NOTE_TYPE:
+        candidate = {
+          ...common,
+          type: 'note',
+          title: props.title,
+          content: props.content,
+          background: props.background,
+          textColor: props.textColor,
+          fontSize: props.fontSize,
+          textAlign: props.textAlign
+        }
+        break
+      case CN_CHECKLIST_TYPE:
+        candidate = {
+          ...common,
+          type: 'checklist',
+          title: props.title,
+          items: props.items,
+          background: props.background,
+          textColor: props.textColor,
+          fontSize: props.fontSize,
+          textAlign: props.textAlign
+        }
+        break
+      case CN_IMAGE_TYPE:
+        candidate = {
+          ...common,
+          type: 'image',
+          mediaId: props.mediaId,
+          mediaPath: props.mediaPath,
+          caption: props.caption,
+          altText: props.altText,
+          fit: props.fit
+        }
+        break
+      case CN_FILE_TYPE:
+        candidate = {
+          ...common,
+          type: 'file',
+          mediaId: props.mediaId,
+          mediaPath: props.mediaPath,
+          filename: props.filename,
+          extension: props.extension,
+          sizeBytes: props.sizeBytes
+        }
+        break
+      default:
+        candidate = {
+          ...common,
+          type: 'frame',
+          title: props.name,
+          background:
+            typeof shape.meta.canvasNoteFrameBackground === 'string'
+              ? shape.meta.canvasNoteFrameBackground
+              : '#f7f7f5',
+          border:
+            typeof shape.meta.canvasNoteFrameBorder === 'string'
+              ? shape.meta.canvasNoteFrameBorder
+              : '#d7d8dc'
+        }
+    }
     const parsed = canvasNodeSchema.safeParse(candidate)
     if (!parsed.success) {
       diagnostics.push({
@@ -510,6 +613,25 @@ export function tldrawToBoard(
   }
 
   const bindings = records.filter(isBindingRecord)
+  const currentNodeIds = new Set(nodes.map(({ id }) => id))
+  for (const connection of source.connections) {
+    if (
+      !preservedNodeIds.has(connection.sourceNodeId) &&
+      !preservedNodeIds.has(connection.targetNodeId)
+    ) {
+      continue
+    }
+    if (
+      ids.has(connection.id) ||
+      !currentNodeIds.has(connection.sourceNodeId) ||
+      !currentNodeIds.has(connection.targetNodeId)
+    ) {
+      continue
+    }
+    ids.add(connection.id)
+    connections.push(connection)
+  }
+
   for (const shape of shapes.values()) {
     if (shape.type !== 'arrow') continue
     const arrowBindings = bindings.filter(

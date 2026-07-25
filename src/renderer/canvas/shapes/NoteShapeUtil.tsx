@@ -136,6 +136,7 @@ function NoteShape({ shape }: { shape: CNNoteShape }) {
               className="cn-shape-title-input"
               aria-label="Note title"
               defaultValue={shape.props.title}
+              maxLength={240}
               placeholder="Note title"
               draggable={false}
               onChange={(event) => update({ title: event.currentTarget.value })}
@@ -148,6 +149,7 @@ function NoteShape({ shape }: { shape: CNNoteShape }) {
               className="cn-note-content-input"
               aria-label="Note content"
               defaultValue={shape.props.content}
+              maxLength={100_000}
               placeholder="Write a note…"
               draggable={false}
               onChange={(event) => update({ content: event.currentTarget.value })}

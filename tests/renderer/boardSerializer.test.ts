@@ -68,6 +68,42 @@ function testBoard(): BoardFile {
         textAlign: 'left',
         createdAt: now,
         updatedAt: now
+      },
+      {
+        id: 'image-1',
+        type: 'image',
+        x: 40,
+        y: 360,
+        width: 360,
+        height: 240,
+        rotation: 0,
+        locked: false,
+        tags: ['reference'],
+        mediaId: 'media:image-1',
+        mediaPath: 'media/images/photo.webp',
+        caption: 'Reference photo',
+        altText: 'A reference photo',
+        fit: 'cover',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'file-1',
+        type: 'file',
+        x: 440,
+        y: 360,
+        width: 320,
+        height: 148,
+        rotation: 0,
+        locked: false,
+        tags: ['source'],
+        mediaId: 'media:file-1',
+        mediaPath: 'media/files/brief.pdf',
+        filename: 'brief.pdf',
+        extension: 'pdf',
+        sizeBytes: 2048,
+        createdAt: now,
+        updatedAt: now
       }
     ],
     connections: [
@@ -98,6 +134,8 @@ describe('board serializer', () => {
     const group = result.records.find((record) => record.id === 'shape:group:group-a')
     const note = result.records.find((record) => record.id === 'shape:note-1')
     const checklist = result.records.find((record) => record.id === 'shape:checklist-1')
+    const image = result.records.find((record) => record.id === 'shape:image-1')
+    const file = result.records.find((record) => record.id === 'shape:file-1')
 
     expect(frame).toMatchObject({
       typeName: 'shape',
@@ -118,6 +156,25 @@ describe('board serializer', () => {
       type: 'cn-checklist',
       props: { items: [{ id: 'item-1', text: 'Review clip', checked: true }] }
     })
+    expect(image).toMatchObject({
+      type: 'cn-image',
+      props: {
+        mediaId: 'media:image-1',
+        mediaPath: 'media/images/photo.webp',
+        caption: 'Reference photo',
+        altText: 'A reference photo',
+        fit: 'cover'
+      }
+    })
+    expect(file).toMatchObject({
+      type: 'cn-file',
+      props: {
+        mediaId: 'media:file-1',
+        mediaPath: 'media/files/brief.pdf',
+        filename: 'brief.pdf',
+        sizeBytes: 2048
+      }
+    })
 
     const schema = createTLSchema()
     for (const record of result.records.filter(
@@ -127,13 +184,66 @@ describe('board serializer', () => {
     }
   })
 
-  it('round-trips notes, checklists, frames, grouping, and arrow bindings', () => {
+  it('round-trips text, media, frames, grouping, and arrow bindings', () => {
     const original = testBoard()
     const loaded = boardToTldraw(original)
     const saved = tldrawToBoard(original, loaded.records, loaded.camera, now)
 
     expect(saved.diagnostics).toEqual([])
     expect(saved.board).toEqual(original)
+  })
+
+  it('preserves schema-supported nodes and connections that this editor cannot render yet', () => {
+    const base = testBoard()
+    const original = boardFileSchema.parse({
+      ...base,
+      nodes: [
+        ...base.nodes,
+        {
+          id: 'video-1',
+          type: 'local-video',
+          x: 800,
+          y: 60,
+          width: 640,
+          height: 390,
+          rotation: 0,
+          locked: false,
+          tags: ['source'],
+          mediaId: 'media:video-1',
+          mediaPath: 'media/videos/interview.mp4',
+          caption: 'Interview',
+          playbackRate: 1,
+          createdAt: now,
+          updatedAt: now
+        }
+      ],
+      connections: [
+        ...base.connections,
+        {
+          id: 'connection-video',
+          type: 'line',
+          sourceNodeId: 'note-1',
+          targetNodeId: 'video-1',
+          label: 'source',
+          style: 'solid',
+          createdAt: now,
+          updatedAt: now
+        }
+      ]
+    })
+
+    const loaded = boardToTldraw(original)
+    const saved = tldrawToBoard(original, loaded.records, loaded.camera, now)
+
+    expect(loaded.diagnostics.map(({ code }) => code)).toEqual(
+      expect.arrayContaining(['unsupported-node', 'unsupported-connection'])
+    )
+    expect(saved.board.nodes).toContainEqual(
+      expect.objectContaining({ id: 'video-1', type: 'local-video' })
+    )
+    expect(saved.board.connections).toContainEqual(
+      expect.objectContaining({ id: 'connection-video', targetNodeId: 'video-1' })
+    )
   })
 
   it('ignores unknown or malformed shapes and reports diagnostics', () => {

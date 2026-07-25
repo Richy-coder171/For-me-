@@ -5,16 +5,28 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 let application: ElectronApplication
 let page: Page
 let testRoot: string
+let imageFixture: string
+let fileFixture: string
 
 test.beforeAll(async () => {
   testRoot = await mkdtemp(path.join(tmpdir(), 'canvasnote-e2e-'))
+  imageFixture = path.join(testRoot, 'sample.png')
+  fileFixture = path.join(testRoot, 'research.txt')
+  await writeFile(
+    imageFixture,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+  )
+  await writeFile(fileFixture, 'Portable CanvasNote attachment.\n', 'utf8')
   const environment: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') environment[key] = value
@@ -54,7 +66,7 @@ test('launches the isolated welcome screen', async () => {
   expect(security).toEqual({
     nodeProcess: 'undefined',
     nodeRequire: 'undefined',
-    bridgeDomains: ['app', 'boards', 'workspace']
+    bridgeDomains: ['app', 'boards', 'media', 'workspace']
   })
 })
 
@@ -84,6 +96,51 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByRole('button', { name: 'Add item' }).click()
   await page.getByLabel('Checklist item').fill('Watch the source')
 
+  await application.evaluate(({ dialog }, fixture) => {
+    Object.defineProperty(dialog, 'showOpenDialog', {
+      configurable: true,
+      value: async () => ({ canceled: false, filePaths: [fixture] })
+    })
+  }, imageFixture)
+  await page.getByRole('button', { name: 'Import image' }).click()
+  await page.getByLabel('Alternative text').fill('A one pixel test image')
+  await page.getByLabel('Caption').fill('Imported reference')
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
+  const importedImage = page.locator('img[src^="canvasnote-media://"]')
+  await expect(importedImage).toHaveCount(1)
+  await expect
+    .poll(() =>
+      importedImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+    )
+    .toBe(true)
+
+  const mediaUrl = await importedImage.getAttribute('src')
+  expect(mediaUrl).toBeTruthy()
+  const range = await application.evaluate(async ({ net }, url) => {
+    const response = await net.fetch(url, { headers: { Range: 'bytes=0-7' } })
+    return {
+      status: response.status,
+      contentRange: response.headers.get('content-range'),
+      length: (await response.arrayBuffer()).byteLength
+    }
+  }, mediaUrl!)
+  expect(range).toEqual({
+    status: 206,
+    contentRange: expect.stringMatching(/^bytes 0-7\//),
+    length: 8
+  })
+
+  await application.evaluate(({ dialog }, fixture) => {
+    Object.defineProperty(dialog, 'showOpenDialog', {
+      configurable: true,
+      value: async () => ({ canceled: false, filePaths: [fixture] })
+    })
+  }, fileFixture)
+  await page.getByRole('button', { name: 'Attach file' }).click()
+  await expect(page.getByText('research.txt', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open research.txt' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reveal research.txt in folder' })).toBeVisible()
+
   const title = page.getByLabel('Board title')
   await title.fill('Edited video research')
   await expect(page.getByText('Unsaved changes')).toBeVisible()
@@ -108,9 +165,20 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByText('Start with the key question.')).toBeVisible()
   await expect(page.getByText('Review steps')).toBeVisible()
   await expect(page.getByText('Watch the source')).toBeVisible()
+  await expect(page.getByRole('img', { name: 'A one pixel test image' })).toBeVisible()
+  await expect(page.getByText('Imported reference')).toBeVisible()
+  await expect(page.getByText('research.txt', { exact: true })).toBeVisible()
 
   const manifest = JSON.parse(
     await readFile(path.join(testRoot, 'E2E Workspace', 'workspace.json'), 'utf8')
   ) as { format: string }
   expect(manifest.format).toBe('canvasnote-workspace')
+  expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'images'))).toHaveLength(1)
+  const copiedFiles = await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'files'))
+  expect(copiedFiles).toHaveLength(1)
+
+  await rm(path.join(testRoot, 'E2E Workspace', 'media', 'files', copiedFiles[0]!))
+  await page.getByRole('button', { name: 'Back to boards' }).click()
+  await page.getByRole('button', { name: 'Open Edited video research' }).click()
+  await expect(page.getByText('File unavailable')).toBeVisible()
 })

@@ -11,9 +11,11 @@ import {
   type BoardSummary
 } from '../../shared/schemas/board'
 import { stableIdSchema } from '../../shared/schemas/common'
+import { mediaImportRequestSchema, mediaPathRequestSchema } from '../../shared/schemas/media'
 import { createWorkspaceRequestSchema } from '../../shared/schemas/workspace'
 import { BoardService, type StoredBoard } from '../services/boardService'
 import { DatabaseService, type BoardMetadata } from '../services/databaseService'
+import type { MediaService } from '../services/mediaService'
 import type { WorkspaceService } from '../services/workspaceService'
 
 function senderWindow(event: Electron.IpcMainInvokeEvent): BrowserWindow {
@@ -54,7 +56,8 @@ function metadataFor(
 
 export function registerHandlers(
   workspaces: WorkspaceService,
-  database: DatabaseService
+  database: DatabaseService,
+  media: MediaService
 ): () => void {
   let boards: BoardService | null = null
 
@@ -192,6 +195,27 @@ export function registerHandlers(
     const { boardId } = boardIdRequestSchema.parse(input)
     await requireBoards().deletePermanently(boardId)
     database.deleteBoard(boardId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.mediaImport, (event, input: unknown) => {
+    const window = senderWindow(event)
+    const { kind } = mediaImportRequestSchema.parse(input)
+    return media.importFile(window, kind)
+  })
+  ipcMain.handle(IPC_CHANNELS.mediaExists, (event, input: unknown) => {
+    senderWindow(event)
+    const { relativePath } = mediaPathRequestSchema.parse(input)
+    return media.exists(relativePath)
+  })
+  ipcMain.handle(IPC_CHANNELS.mediaOpen, (event, input: unknown) => {
+    senderWindow(event)
+    const { relativePath } = mediaPathRequestSchema.parse(input)
+    return media.open(relativePath)
+  })
+  ipcMain.handle(IPC_CHANNELS.mediaReveal, (event, input: unknown) => {
+    senderWindow(event)
+    const { relativePath } = mediaPathRequestSchema.parse(input)
+    return media.reveal(relativePath)
   })
 
   return () => {

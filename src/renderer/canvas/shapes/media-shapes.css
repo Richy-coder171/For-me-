@@ -1,0 +1,177 @@
+.cn-media-container {
+  user-select: none;
+}
+
+.cn-image-shape,
+.cn-file-shape {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgb(17 24 39 / 14%);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 10%);
+  color: #202124;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.cn-image-shape {
+  position: relative;
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+}
+
+.cn-image-shape img {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+  background: #f3f4f6;
+}
+
+.cn-image-shape figcaption {
+  overflow: hidden;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-top: 1px solid rgb(17 24 39 / 10%);
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cn-media-missing {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px;
+  background: #f5f6f8;
+  color: #5f6368;
+  text-align: center;
+}
+
+.cn-media-missing strong {
+  color: #34373d;
+  font-size: 14px;
+}
+
+.cn-media-missing span {
+  max-width: 240px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cn-media-action {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid rgb(17 24 39 / 16%);
+  border-radius: 5px;
+  background: #fff;
+  color: #30333a;
+  font:
+    600 12px/1.2 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+}
+
+.cn-media-action:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.cn-media-action:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.cn-media-action:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.cn-image-open {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.cn-image-shape:hover .cn-image-open,
+.cn-image-open:focus-visible {
+  opacity: 1;
+}
+
+.cn-file-shape {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+}
+
+.cn-file-shape.is-missing {
+  border-color: rgb(185 28 28 / 35%);
+}
+
+.cn-file-extension {
+  display: grid;
+  width: 54px;
+  height: 62px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #eef1f5;
+  color: #50545c;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+}
+
+.cn-file-details {
+  min-width: 0;
+}
+
+.cn-file-details h3,
+.cn-file-details p {
+  margin: 0;
+}
+
+.cn-file-details h3 {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cn-file-details p {
+  margin-top: 5px;
+  color: #6b7078;
+  font-size: 12px;
+}
+
+.cn-file-details .cn-file-missing {
+  color: #b91c1c;
+  font-weight: 650;
+}
+
+.cn-file-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cn-image-open {
+    transition: none;
+  }
+}

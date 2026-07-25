@@ -32,19 +32,28 @@ export async function assertNoSymlinkEscape(root: string, candidate: string): Pr
   const realRoot = await realpath(root)
   let existingPath = candidate
   while (isPathInside(root, existingPath)) {
+    let realCandidate: string
     try {
       await stat(existingPath)
-      const realCandidate = await realpath(existingPath)
-      if (!isPathInside(realRoot, realCandidate)) {
-        throw new Error('Symbolic links cannot escape the active workspace.')
-      }
-      return
+      realCandidate = await realpath(existingPath)
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Symbolic links')) throw error
+      if (
+        error === null ||
+        typeof error !== 'object' ||
+        !('code' in error) ||
+        !['ENOENT', 'ENOTDIR'].includes(String(error.code))
+      ) {
+        throw new Error('Unable to validate the workspace path.', { cause: error })
+      }
       const parent = path.dirname(existingPath)
       if (parent === existingPath) break
       existingPath = parent
+      continue
     }
+    if (!isPathInside(realRoot, realCandidate)) {
+      throw new Error('Symbolic links cannot escape the active workspace.')
+    }
+    return
   }
 
   throw new Error('Unable to validate the workspace path.')

@@ -122,7 +122,7 @@ export function createCNChecklistShape(
   }
 }
 
-function nextShapePosition(
+export function getNextShapePosition(
   editor: Editor,
   width: number,
   height: number
@@ -136,14 +136,14 @@ function nextShapePosition(
 }
 
 export function createNoteShape(editor: Editor) {
-  const position = nextShapePosition(editor, 300, 220)
+  const position = getNextShapePosition(editor, 300, 220)
   const shape = createCNNoteShape(position.x, position.y)
   editor.createShape(shape).select(shape.id).setEditingShape(shape.id)
   return shape.id
 }
 
 export function createChecklistShape(editor: Editor) {
-  const position = nextShapePosition(editor, 320, 260)
+  const position = getNextShapePosition(editor, 320, 260)
   const shape = createCNChecklistShape(position.x, position.y)
   editor.createShape(shape).select(shape.id).setEditingShape(shape.id)
   return shape.id

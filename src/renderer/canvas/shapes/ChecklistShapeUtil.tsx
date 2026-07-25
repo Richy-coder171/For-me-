@@ -136,6 +136,7 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
   }
 
   const addItem = (afterId?: string) => {
+    if (shape.props.items.length >= 500) return
     const item = createCNChecklistItem()
     const index = afterId
       ? shape.props.items.findIndex((candidate) => candidate.id === afterId) + 1
@@ -152,6 +153,17 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
     const nextFocus = shape.props.items[index - 1]?.id ?? shape.props.items[index + 1]?.id ?? null
     updateItems(shape.props.items.filter((item) => item.id !== id))
     focusItemId.current = nextFocus
+  }
+
+  const moveItem = (id: string, direction: -1 | 1) => {
+    const from = shape.props.items.findIndex((item) => item.id === id)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= shape.props.items.length) return
+    const items = [...shape.props.items]
+    const [item] = items.splice(from, 1)
+    if (!item) return
+    items.splice(to, 0, item)
+    updateItems(items)
   }
 
   const handleItemKeyDown = (event: KeyboardEvent<HTMLInputElement>, item: CNChecklistItem) => {
@@ -189,6 +201,7 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
             aria-label="Checklist title"
             autoFocus
             defaultValue={shape.props.title}
+            maxLength={240}
             placeholder="Checklist"
             draggable={false}
             onChange={(event) =>
@@ -258,6 +271,7 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
                     }
                     aria-label="Checklist item"
                     defaultValue={item.text}
+                    maxLength={10_000}
                     placeholder="New item"
                     draggable={false}
                     onChange={(event) => updateItem(item.id, { text: event.currentTarget.value })}
@@ -271,20 +285,49 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
                   </span>
                 )}
                 {interactive && (
-                  <button
-                    type="button"
-                    className="cn-checklist-remove"
-                    aria-label={`Remove ${item.text || 'item'}`}
-                    title="Remove item"
-                    onPointerDown={keepInShape}
-                    onClick={(event) => {
-                      keepInShape(event)
-                      removeItem(item.id)
-                    }}
-                    onKeyDown={keepInShape}
-                  >
-                    ×
-                  </button>
+                  <span className="cn-checklist-item-actions">
+                    <button
+                      type="button"
+                      aria-label={`Move ${item.text || 'item'} up`}
+                      title="Move up"
+                      disabled={shape.props.items[0]?.id === item.id}
+                      onPointerDown={keepInShape}
+                      onClick={(event) => {
+                        keepInShape(event)
+                        moveItem(item.id, -1)
+                      }}
+                      onKeyDown={keepInShape}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move ${item.text || 'item'} down`}
+                      title="Move down"
+                      disabled={shape.props.items.at(-1)?.id === item.id}
+                      onPointerDown={keepInShape}
+                      onClick={(event) => {
+                        keepInShape(event)
+                        moveItem(item.id, 1)
+                      }}
+                      onKeyDown={keepInShape}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${item.text || 'item'}`}
+                      title="Remove item"
+                      onPointerDown={keepInShape}
+                      onClick={(event) => {
+                        keepInShape(event)
+                        removeItem(item.id)
+                      }}
+                      onKeyDown={keepInShape}
+                    >
+                      ×
+                    </button>
+                  </span>
                 )}
               </div>
             ))
@@ -295,6 +338,7 @@ function ChecklistShape({ shape }: { shape: CNChecklistShape }) {
           <button
             type="button"
             className="cn-checklist-add"
+            disabled={shape.props.items.length >= 500}
             onPointerDown={keepInShape}
             onClick={(event) => {
               keepInShape(event)

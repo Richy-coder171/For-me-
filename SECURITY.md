@@ -35,8 +35,8 @@ Existing read targets and new-write parents are realpath-checked to prevent symb
 
 - Only HTTPS YouTube/Vimeo provider URLs become embeds; arbitrary iframe HTML is rejected.
 - Link cards accept only HTTP(S) URLs and never run a remote metadata service in the first release.
-- Files are copied with generated names and validated extensions/signatures where supported.
-- Attached programs and code are never executed.
-- Local media is served through a workspace-scoped custom protocol rather than exposed `file://` paths.
+- Files are streamed into kind-specific folders with generated names, bounded sizes, and validated extensions.
+- Only an explicit set of common document/media formats can be opened; other regular attachments can be revealed but never launched by CanvasNote.
+- Local media is served through a workspace-scoped custom protocol with fixed MIME types, byte ranges, and `nosniff` rather than exposed `file://` paths.
 
 Security issues should be reported privately to the repository owner rather than posted with sensitive workspace data.

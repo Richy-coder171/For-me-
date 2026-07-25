@@ -24,3 +24,9 @@ All notable CanvasNote changes are documented here.
 - Serialized 750 ms autosave with manual save, failure state, SHA-256 revision checks, and flush-before-navigation behavior.
 - Keyboard-first canvas commands and an offline core editor that does not fetch tldraw UI assets from a CDN.
 - Unit coverage for custom shapes, serialization, and autosave plus an Electron workflow that verifies note/checklist content after restart.
+- Workspace-scoped image and file imports with streamed copies, generated filenames, explicit size/type limits, and no absolute paths in board data.
+- Secure `canvasnote-media:` delivery with containment checks, enforced MIME types, byte-range support, and a narrow preload API for open/reveal actions.
+- Resizable image shapes with contain/cover, captions, alternative text, tags, missing-media handling, and open-original actions.
+- Portable file cards with filename/type/size metadata, tags, open/reveal actions, and explicit missing-file feedback.
+- Serializer preservation for valid node types that an older editor cannot render, preventing camera/title autosaves from silently dropping future content.
+- Accessible checklist item reordering and Electron coverage for imported media persistence and protocol range requests.

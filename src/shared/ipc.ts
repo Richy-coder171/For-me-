@@ -5,6 +5,7 @@ import type {
   OpenBoard,
   WorkspaceStats
 } from './schemas/board'
+import type { ImportedMedia, MediaKind } from './schemas/media'
 import type { WorkspaceSummary } from './schemas/workspace'
 
 export const IPC_CHANNELS = {
@@ -22,7 +23,11 @@ export const IPC_CHANNELS = {
   boardFavorite: 'board:favorite',
   boardTrash: 'board:trash',
   boardRestore: 'board:restore',
-  boardDelete: 'board:delete'
+  boardDelete: 'board:delete',
+  mediaImport: 'media:import',
+  mediaExists: 'media:exists',
+  mediaOpen: 'media:open',
+  mediaReveal: 'media:reveal'
 } as const
 
 export interface AppInfo {
@@ -51,5 +56,12 @@ export interface CanvasNoteApi {
     trash: (boardId: string) => Promise<void>
     restore: (boardId: string) => Promise<void>
     deletePermanently: (boardId: string) => Promise<void>
+  }
+  media: {
+    importFile: (kind: MediaKind) => Promise<ImportedMedia | null>
+    toUrl: (relativePath: string) => string
+    exists: (relativePath: string) => Promise<boolean>
+    open: (relativePath: string) => Promise<void>
+    reveal: (relativePath: string) => Promise<void>
   }
 }

@@ -2,9 +2,9 @@
 
 CanvasNote is a local-first Electron desktop application for visual notes, media boards, and timestamped video research. It combines an infinite tldraw canvas with portable `.canvasnote` files and workspace-scoped local storage.
 
-> Current status: secure workspaces, the SQLite-backed dashboard, atomic `.canvasnote` persistence, and the infinite note/checklist editor are working. Media and timestamp tools are the next milestone; see [CHANGELOG.md](CHANGELOG.md).
+> Current status: secure workspaces, the SQLite-backed dashboard, atomic `.canvasnote` persistence, the infinite note/checklist editor, and portable image/file imports are working. Video and timestamp tools are the next milestone; see [CHANGELOG.md](CHANGELOG.md).
 
-The editor supports notes, checklists, native frames and connections, grouping, canvas properties, undo/redo, keyboard shortcuts, camera persistence, and trailing 750 ms autosave. Press `N` for a note, `C` for a checklist, `F` for a frame, `L` for a connection, and `Ctrl/Cmd+S` to save immediately.
+The editor supports notes, checklists, images, file cards, native frames and connections, grouping, canvas properties, undo/redo, keyboard shortcuts, camera persistence, and trailing 750 ms autosave. Press `N` for a note, `C` for a checklist, `I` to import an image, `F` for a frame, `L` for a connection, and `Ctrl/Cmd+S` to save immediately.
 
 ## Requirements
 

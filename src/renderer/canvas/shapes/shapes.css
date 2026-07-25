@@ -143,7 +143,7 @@
 }
 
 .cn-checklist-add,
-.cn-checklist-remove {
+.cn-checklist-item-actions button {
   border: 0;
   border-radius: 4px;
   background: rgb(255 255 255 / 52%);
@@ -158,20 +158,30 @@
   font-size: 0.8em;
 }
 
-.cn-checklist-remove {
+.cn-checklist-item-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.cn-checklist-item-actions button {
   width: 22px;
   height: 22px;
   padding: 0;
   opacity: 0.6;
 }
 
+.cn-checklist-item-actions button:disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
 .cn-checklist-add:hover,
-.cn-checklist-remove:hover {
+.cn-checklist-item-actions button:hover:not(:disabled) {
   background: rgb(255 255 255 / 85%);
 }
 
 .cn-checklist-add:focus-visible,
-.cn-checklist-remove:focus-visible,
+.cn-checklist-item-actions button:focus-visible,
 .cn-checklist-item input:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
