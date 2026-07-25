@@ -3,10 +3,13 @@ import path from 'node:path'
 import { app, BrowserWindow, session } from 'electron'
 
 import { registerHandlers } from './ipc/registerHandlers'
+import { DatabaseService } from './services/databaseService'
 import { WorkspaceService } from './services/workspaceService'
 
 let mainWindow: BrowserWindow | null = null
 const workspaces = new WorkspaceService()
+const database = new DatabaseService()
+let disposeHandlers: (() => void) | null = null
 
 function contentSecurityPolicy(): string {
   const connectSource = app.isPackaged ? "'self'" : "'self' ws: http://localhost:*"
@@ -73,7 +76,7 @@ app.whenReady().then(() => {
     })
   })
 
-  registerHandlers(workspaces)
+  disposeHandlers = registerHandlers(workspaces, database)
   createWindow()
 
   app.on('activate', () => {
@@ -83,4 +86,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  disposeHandlers?.()
+  disposeHandlers = null
 })

@@ -73,7 +73,7 @@ export function WelcomeScreen({ dark, onToggleTheme }: WelcomeScreenProps): Reac
                 disabled={!name.trim() || busy}
                 onClick={() => void createWorkspace(name)}
               >
-                {operation === 'creating' ? (
+                {operation === 'creating-workspace' ? (
                   <LoaderCircle className="animate-spin" size={16} />
                 ) : (
                   <Plus size={16} />

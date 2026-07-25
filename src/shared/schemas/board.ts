@@ -238,6 +238,59 @@ export type CanvasNode = z.infer<typeof canvasNodeSchema>
 export type BoardFile = z.infer<typeof boardFileSchema>
 export type BoardConnection = z.infer<typeof connectionSchema>
 
+export const boardSummarySchema = z
+  .object({
+    id: stableIdSchema,
+    title: z.string().min(1).max(240),
+    createdAt: isoDateSchema,
+    updatedAt: isoDateSchema,
+    openedAt: isoDateSchema.nullable(),
+    isFavorite: z.boolean(),
+    deletedAt: isoDateSchema.nullable(),
+    itemCount: z.number().int().nonnegative()
+  })
+  .strict()
+
+export const boardListRequestSchema = z
+  .object({
+    view: z.enum(['recent', 'all', 'favorites', 'trash']).default('recent'),
+    query: z.string().trim().max(200).default('')
+  })
+  .strict()
+
+export const boardCreateRequestSchema = z
+  .object({ title: z.string().trim().min(1).max(240) })
+  .strict()
+
+export const boardIdRequestSchema = z.object({ boardId: stableIdSchema }).strict()
+
+export const boardFavoriteRequestSchema = z
+  .object({ boardId: stableIdSchema, favorite: z.boolean() })
+  .strict()
+
+export const revisionSchema = z.string().regex(/^[a-f0-9]{64}$/)
+
+export const boardSaveRequestSchema = z
+  .object({
+    board: boardFileSchema,
+    expectedRevision: revisionSchema.optional()
+  })
+  .strict()
+
+export type BoardSummary = z.infer<typeof boardSummarySchema>
+export type BoardListRequest = z.infer<typeof boardListRequestSchema>
+
+export interface OpenBoard {
+  board: BoardFile
+  revision: string
+}
+
+export interface WorkspaceStats {
+  storageBytes: number
+  boardCount: number
+  trashCount: number
+}
+
 export interface BrokenReference {
   ownerId: string
   targetId: string

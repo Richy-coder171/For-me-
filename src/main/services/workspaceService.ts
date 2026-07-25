@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import { BrowserWindow, dialog } from 'electron'
@@ -75,11 +75,40 @@ async function readManifest(root: string): Promise<WorkspaceManifest> {
   }
 }
 
+async function directorySize(root: string): Promise<number> {
+  let total = 0
+  const pending = [root]
+  while (pending.length > 0) {
+    const directory = pending.pop()
+    if (!directory) continue
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) pending.push(entryPath)
+      else if (entry.isFile()) total += (await lstat(entryPath)).size
+    }
+  }
+  return total
+}
+
 export class WorkspaceService {
   #activeRoot: string | null = null
 
   get activeRoot(): string | null {
     return this.#activeRoot
+  }
+
+  close(): void {
+    this.#activeRoot = null
+  }
+
+  async storageBytes(): Promise<number> {
+    if (!this.#activeRoot) throw new Error('Open a workspace first.')
+    try {
+      return await directorySize(this.#activeRoot)
+    } catch (error) {
+      throw new Error('CanvasNote could not calculate workspace storage usage.', { cause: error })
+    }
   }
 
   recent(): WorkspaceSummary[] {
