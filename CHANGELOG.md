@@ -30,3 +30,8 @@ All notable CanvasNote changes are documented here.
 - Portable file cards with filename/type/size metadata, tags, open/reveal actions, and explicit missing-file feedback.
 - Serializer preservation for valid node types that an older editor cannot render, preventing camera/title autosaves from silently dropping future content.
 - Accessible checklist item reordering and Electron coverage for imported media persistence and protocol range requests.
+- Local MP4/MOV/WebM video cards with native playback controls, captions, speed selection, signature validation, missing-media feedback, and portable metadata.
+- Strict HTTPS YouTube/Vimeo URL parsing with sandboxed provider-only embeds and origin-checked player messaging.
+- Timestamp notes that capture the active local/embedded video time, retain an editable source link, and select/seek the linked video when clicked.
+- Readable serialization for local video, embedded video, and timestamp-note shapes without persisting runtime URLs or player state.
+- Built-Electron coverage using Chromium's tiny VP8 fixture for import, playback metadata, timestamp creation/seek, provider embed normalization, save, and reopen.

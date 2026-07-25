@@ -23,10 +23,16 @@ import {
   type CNFileShape,
   type CNImageShape
 } from './shapes/MediaShapeTypes'
+import type { CNEmbeddedVideoShape } from './shapes/EmbeddedVideoShapeUtil'
+import type { CNLocalVideoShape } from './shapes/LocalVideoShapeUtil'
+import type { CNTimestampNoteShape } from './shapes/TimestampNoteShapeUtil'
 import type { CNChecklistShape, CNNoteShape } from './shapes/types'
 
 const CN_NOTE_TYPE = 'cn-note' as const
 const CN_CHECKLIST_TYPE = 'cn-checklist' as const
+const CN_LOCAL_VIDEO_TYPE = 'cn-local-video' as const
+const CN_EMBEDDED_VIDEO_TYPE = 'cn-embedded-video' as const
+const CN_TIMESTAMP_NOTE_TYPE = 'cn-timestamp-note' as const
 
 export const DEFAULT_TLDRAW_PAGE_ID = 'page:canvasnote' as TLPageId
 
@@ -35,6 +41,9 @@ export type BoardTldrawRecord =
   | CNChecklistShape
   | CNImageShape
   | CNFileShape
+  | CNLocalVideoShape
+  | CNEmbeddedVideoShape
+  | CNTimestampNoteShape
   | TLFrameShape
   | TLGroupShape
   | TLArrowShape
@@ -175,6 +184,9 @@ function isSupportedCanvasNode(node: BoardFile['nodes'][number]): boolean {
     node.type === 'checklist' ||
     node.type === 'image' ||
     node.type === 'file' ||
+    node.type === 'local-video' ||
+    node.type === 'embedded-video' ||
+    node.type === 'timestamp-note' ||
     node.type === 'frame'
   )
 }
@@ -340,6 +352,64 @@ export function boardToTldraw(
           }
         })
         break
+      case 'local-video':
+        records.push({
+          ...base,
+          type: CN_LOCAL_VIDEO_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            mediaId: node.mediaId,
+            mediaPath: node.mediaPath,
+            caption: node.caption,
+            ...(node.posterPath ? { posterPath: node.posterPath } : {}),
+            ...(node.durationSeconds !== undefined
+              ? { durationSeconds: node.durationSeconds }
+              : {}),
+            playbackRate: node.playbackRate,
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
+      case 'embedded-video':
+        records.push({
+          ...base,
+          type: CN_EMBEDDED_VIDEO_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            provider: node.provider,
+            url: node.url,
+            videoId: node.videoId,
+            caption: node.caption,
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
+      case 'timestamp-note':
+        records.push({
+          ...base,
+          type: CN_TIMESTAMP_NOTE_TYPE,
+          props: {
+            w: node.width,
+            h: node.height,
+            videoNodeId: node.videoNodeId,
+            timestampSeconds: node.timestampSeconds,
+            content: node.content,
+            background: node.background,
+            textColor: node.textColor,
+            fontSize: node.fontSize,
+            textAlign: node.textAlign,
+            tags: node.tags,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt
+          }
+        })
+        break
       case 'frame':
         records.push({
           ...base,
@@ -492,6 +562,9 @@ export function tldrawToBoard(
       shape.type !== CN_CHECKLIST_TYPE &&
       shape.type !== CN_IMAGE_TYPE &&
       shape.type !== CN_FILE_TYPE &&
+      shape.type !== CN_LOCAL_VIDEO_TYPE &&
+      shape.type !== CN_EMBEDDED_VIDEO_TYPE &&
+      shape.type !== CN_TIMESTAMP_NOTE_TYPE &&
       shape.type !== 'frame'
     ) {
       diagnostics.push({
@@ -582,6 +655,41 @@ export function tldrawToBoard(
           filename: props.filename,
           extension: props.extension,
           sizeBytes: props.sizeBytes
+        }
+        break
+      case CN_LOCAL_VIDEO_TYPE:
+        candidate = {
+          ...common,
+          type: 'local-video',
+          mediaId: props.mediaId,
+          mediaPath: props.mediaPath,
+          caption: props.caption,
+          posterPath: props.posterPath,
+          durationSeconds: props.durationSeconds,
+          playbackRate: props.playbackRate
+        }
+        break
+      case CN_EMBEDDED_VIDEO_TYPE:
+        candidate = {
+          ...common,
+          type: 'embedded-video',
+          provider: props.provider,
+          url: props.url,
+          videoId: props.videoId,
+          caption: props.caption
+        }
+        break
+      case CN_TIMESTAMP_NOTE_TYPE:
+        candidate = {
+          ...common,
+          type: 'timestamp-note',
+          videoNodeId: props.videoNodeId,
+          timestampSeconds: props.timestampSeconds,
+          content: props.content,
+          background: props.background,
+          textColor: props.textColor,
+          fontSize: props.fontSize,
+          textAlign: props.textAlign
         }
         break
       default:

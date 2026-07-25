@@ -14,11 +14,38 @@ let page: Page
 let testRoot: string
 let imageFixture: string
 let fileFixture: string
+let videoFixture: string
+
+// Chromium's BSD-licensed 1,746-byte black/white VP8 test video:
+// https://chromium.googlesource.com/chromium/src/+/38.0.2125.92/media/test/data/blackwhite_yuv420p.webm
+const CHROMIUM_WEBM_FIXTURE = [
+  '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'
+].join('')
 
 test.beforeAll(async () => {
   testRoot = await mkdtemp(path.join(tmpdir(), 'canvasnote-e2e-'))
   imageFixture = path.join(testRoot, 'sample.png')
   fileFixture = path.join(testRoot, 'research.txt')
+  videoFixture = path.join(testRoot, 'sample.webm')
   await writeFile(
     imageFixture,
     Buffer.from(
@@ -43,6 +70,8 @@ test.beforeAll(async () => {
   page.on('console', (message) => {
     if (message.type() === 'error') process.stderr.write(`[renderer console] ${message.text()}\n`)
   })
+  await page.waitForLoadState('domcontentloaded')
+  await writeFile(videoFixture, Buffer.from(CHROMIUM_WEBM_FIXTURE, 'base64'))
 })
 
 test.afterAll(async () => {
@@ -141,6 +170,54 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByRole('button', { name: 'Open research.txt' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reveal research.txt in folder' })).toBeVisible()
 
+  await application.evaluate(({ dialog }, fixture) => {
+    Object.defineProperty(dialog, 'showOpenDialog', {
+      configurable: true,
+      value: async () => ({ canceled: false, filePaths: [fixture] })
+    })
+  }, videoFixture)
+  const generatedVideo = await readFile(videoFixture)
+  expect([...generatedVideo.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3])
+  expect(
+    generatedVideo.indexOf(Buffer.from([0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d]))
+  ).toBeGreaterThanOrEqual(4)
+  await page.getByRole('button', { name: 'Import local video' }).click()
+  await page.getByLabel('Caption').fill('Interview clip')
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
+  const localVideo = page.getByLabel('Interview clip')
+  await expect(localVideo).toBeVisible()
+  await expect
+    .poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.readyState))
+    .toBeGreaterThanOrEqual(1)
+  await localVideo.evaluate(async (video: HTMLVideoElement) => {
+    const target = Math.min(0.2, video.duration / 2)
+    video.currentTime = target
+    await new Promise<void>((resolve) => {
+      if (Math.abs(video.currentTime - target) < 0.02) resolve()
+      else video.addEventListener('seeked', () => resolve(), { once: true })
+    })
+  })
+  await page
+    .getByRole('complementary', { name: 'Properties panel' })
+    .getByRole('button', { name: 'Add note at current time' })
+    .click()
+  await page.getByLabel('Timestamp note content').fill('Key interview moment')
+  await page.getByLabel('Timestamp (seconds)').fill('0.1')
+  await localVideo.evaluate((video: HTMLVideoElement) => {
+    video.currentTime = Math.min(0.4, video.duration)
+  })
+  await page.getByRole('button', { name: 'Seek video to 00:00' }).click()
+  await expect
+    .poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.currentTime))
+    .toBeLessThanOrEqual(0.15)
+
+  await page.getByRole('button', { name: 'Embed YouTube or Vimeo video' }).click()
+  await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await page.getByRole('button', { name: 'Embed video' }).click()
+  const embeddedVideo = page.locator('iframe[src^="https://www.youtube-nocookie.com/embed/"]')
+  await expect(embeddedVideo).toHaveAttribute('src', /dQw4w9WgXcQ/)
+  await page.getByLabel('Caption').fill('YouTube reference')
+
   const title = page.getByLabel('Board title')
   await title.fill('Edited video research')
   await expect(page.getByText('Unsaved changes')).toBeVisible()
@@ -161,6 +238,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Open Edited video research' }).click()
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
   await expect(page.getByText('Opening idea')).toBeVisible()
   await expect(page.getByText('Start with the key question.')).toBeVisible()
   await expect(page.getByText('Review steps')).toBeVisible()
@@ -168,12 +246,18 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByRole('img', { name: 'A one pixel test image' })).toBeVisible()
   await expect(page.getByText('Imported reference')).toBeVisible()
   await expect(page.getByText('research.txt', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Interview clip')).toBeVisible()
+  await expect(page.getByText('Key interview moment')).toBeVisible()
+  await expect(
+    page.locator('iframe[src^="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"]')
+  ).toHaveCount(1)
 
   const manifest = JSON.parse(
     await readFile(path.join(testRoot, 'E2E Workspace', 'workspace.json'), 'utf8')
   ) as { format: string }
   expect(manifest.format).toBe('canvasnote-workspace')
   expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'images'))).toHaveLength(1)
+  expect(await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'videos'))).toHaveLength(1)
   const copiedFiles = await readdir(path.join(testRoot, 'E2E Workspace', 'media', 'files'))
   expect(copiedFiles).toHaveLength(1)
 

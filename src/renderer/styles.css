@@ -359,6 +359,8 @@ button:not(:disabled) {
 }
 
 .canvas-property-group input[type='text'],
+.canvas-property-group input[type='number'],
+.canvas-property-group textarea,
 .canvas-property-group select {
   width: 100%;
   border: 1px solid var(--line);
@@ -368,6 +370,11 @@ button:not(:disabled) {
   color: var(--ink);
   font-size: 0.75rem;
   outline: 0;
+}
+
+.canvas-property-group textarea {
+  resize: vertical;
+  line-height: 1.45;
 }
 
 .canvas-property-group input[type='color'] {
@@ -380,6 +387,7 @@ button:not(:disabled) {
 }
 
 .canvas-property-group input:focus,
+.canvas-property-group textarea:focus,
 .canvas-property-group select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
@@ -455,6 +463,128 @@ button:not(:disabled) {
 .canvas-property-actions button.is-danger {
   grid-column: 1 / -1;
   color: var(--danger);
+}
+
+.canvas-secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent), transparent 65%);
+  border-radius: 0.5rem;
+  background: var(--accent-soft);
+  padding: 0.6rem;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.canvas-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgb(15 23 42 / 42%);
+  inset: 0;
+  padding: 1rem;
+  backdrop-filter: blur(3px);
+}
+
+.canvas-dialog {
+  width: min(28rem, 100%);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--surface);
+  padding: 1rem;
+  box-shadow: var(--shadow-panel);
+}
+
+.canvas-dialog-header,
+.canvas-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.canvas-dialog-header p,
+.canvas-dialog-header h2 {
+  margin: 0;
+}
+
+.canvas-dialog-header p {
+  color: var(--faint);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.canvas-dialog-header h2 {
+  margin-top: 0.15rem;
+  font-size: 1rem;
+}
+
+.canvas-dialog-header > button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--muted);
+}
+
+.canvas-dialog > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.canvas-dialog input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--canvas);
+  padding: 0.7rem 0.75rem;
+  color: var(--ink);
+  outline: 0;
+}
+
+.canvas-dialog input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
+}
+
+.canvas-dialog-error {
+  margin: 0.55rem 0 0;
+  color: var(--danger);
+  font-size: 0.7rem;
+}
+
+.canvas-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.canvas-dialog-actions button {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.58rem 0.8rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.canvas-dialog-actions button.is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
 }
 
 @media (max-width: 760px) {

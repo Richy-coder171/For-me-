@@ -13,11 +13,17 @@ import {
   CN_CHECKLIST_TYPE,
   CN_FILE_TYPE,
   CN_IMAGE_TYPE,
+  CN_EMBEDDED_VIDEO_TYPE,
+  CN_LOCAL_VIDEO_TYPE,
   CN_NOTE_TYPE,
+  CN_TIMESTAMP_NOTE_TYPE,
   CNChecklistShapeUtil,
+  CNEmbeddedVideoShapeUtil,
   CNFileShapeUtil,
   CNImageShapeUtil,
+  CNLocalVideoShapeUtil,
   CNNoteShapeUtil,
+  CNTimestampNoteShapeUtil,
   NOTE_MIN_HEIGHT,
   NOTE_MIN_WIDTH,
   canvasShapeUtils,
@@ -36,12 +42,18 @@ describe('CanvasNote custom shapes', () => {
       CNNoteShapeUtil,
       CNChecklistShapeUtil,
       CNImageShapeUtil,
-      CNFileShapeUtil
+      CNFileShapeUtil,
+      CNLocalVideoShapeUtil,
+      CNEmbeddedVideoShapeUtil,
+      CNTimestampNoteShapeUtil
     ])
     expect(CNNoteShapeUtil.type).toBe(CN_NOTE_TYPE)
     expect(CNChecklistShapeUtil.type).toBe(CN_CHECKLIST_TYPE)
     expect(CNImageShapeUtil.type).toBe(CN_IMAGE_TYPE)
     expect(CNFileShapeUtil.type).toBe(CN_FILE_TYPE)
+    expect(CNLocalVideoShapeUtil.type).toBe(CN_LOCAL_VIDEO_TYPE)
+    expect(CNEmbeddedVideoShapeUtil.type).toBe(CN_EMBEDDED_VIDEO_TYPE)
+    expect(CNTimestampNoteShapeUtil.type).toBe(CN_TIMESTAMP_NOTE_TYPE)
   })
 
   it('creates schema-aligned notes and checklists', () => {

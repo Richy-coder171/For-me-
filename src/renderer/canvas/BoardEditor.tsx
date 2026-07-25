@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
+  Clock3,
   Copy,
   Frame,
   Group,
@@ -14,6 +15,7 @@ import {
   Maximize2,
   Minus,
   MousePointer2,
+  MonitorPlay,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
@@ -24,7 +26,9 @@ import {
   Trash2,
   Undo2,
   Ungroup,
-  Unlock
+  Unlock,
+  Video,
+  X
 } from 'lucide-react'
 import {
   TldrawEditor,
@@ -47,23 +51,38 @@ import { createAutosaveQueue, type AutosaveQueue } from './autosave'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
 import {
   CN_CHECKLIST_TYPE,
+  CN_EMBEDDED_VIDEO_TYPE,
   CN_FILE_TYPE,
   CN_IMAGE_TYPE,
+  CN_LOCAL_VIDEO_TYPE,
   CN_NOTE_TYPE,
+  CN_TIMESTAMP_NOTE_TYPE,
   canvasShapeUtils,
   createChecklistShape,
+  createCNEmbeddedVideoShape,
   createCNFileShape,
   createCNImageShape,
+  createCNLocalVideoShape,
+  createCNTimestampNoteShape,
   createNoteShape,
   getNextShapePosition,
   isCNChecklistShape,
+  isCNEmbeddedVideoShape,
   isCNFileShape,
   isCNImageShape,
+  isCNLocalVideoShape,
   isCNNoteShape,
+  isCNTimestampNoteShape,
+  onVideoShapeEvent,
+  parseEmbeddedVideoUrl,
+  requestTimestampNote,
   type CNChecklistShape,
+  type CNEmbeddedVideoShape,
   type CNFileShape,
   type CNImageShape,
+  type CNLocalVideoShape,
   type CNNoteShape,
+  type CNTimestampNoteShape,
   type CNTextAlign,
   type CNTextBackground
 } from './shapes'
@@ -115,6 +134,73 @@ function saveLabel(state: SaveState): string {
   }
 }
 
+function selectedShapeLabel(shape: TLShape): string {
+  switch (shape.type) {
+    case CN_NOTE_TYPE:
+      return 'Note'
+    case CN_CHECKLIST_TYPE:
+      return 'Checklist'
+    case CN_IMAGE_TYPE:
+      return 'Image'
+    case CN_FILE_TYPE:
+      return 'File'
+    case CN_LOCAL_VIDEO_TYPE:
+      return 'Local video'
+    case CN_EMBEDDED_VIDEO_TYPE:
+      return 'Embedded video'
+    case CN_TIMESTAMP_NOTE_TYPE:
+      return 'Timestamp note'
+    case 'frame':
+      return 'Frame'
+    case 'arrow':
+      return 'Connection'
+    default:
+      return 'Object'
+  }
+}
+
+function canvasNoteId(shape: TLShape): string {
+  return typeof shape.meta.canvasNoteId === 'string'
+    ? shape.meta.canvasNoteId
+    : shape.id.replace(/^shape:/, '')
+}
+
+function parseTags(value: string): string[] {
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 50)
+}
+
+function TagsField({
+  id,
+  tags,
+  placeholder,
+  onChange
+}: {
+  id: string
+  tags: string[]
+  placeholder: string
+  onChange: (tags: string[]) => void
+}): React.JSX.Element {
+  return (
+    <label className="canvas-property-group">
+      <span>Tags</span>
+      <input
+        key={`${id}:${tags.join(',')}`}
+        type="text"
+        defaultValue={tags.join(', ')}
+        placeholder={placeholder}
+        onBlur={(event) => onChange(parseTags(event.target.value))}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur()
+        }}
+      />
+    </label>
+  )
+}
+
 function ToolButton({
   label,
   shortcut,
@@ -157,7 +243,10 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   const [revision, setRevision] = useState(stored.revision)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
-  const [importing, setImporting] = useState<'image' | 'file' | null>(null)
+  const [importing, setImporting] = useState<'image' | 'video' | 'file' | null>(null)
+  const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
+  const [embedUrl, setEmbedUrl] = useState('')
+  const [embedError, setEmbedError] = useState<string | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
@@ -302,13 +391,15 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   )
 
   const importMedia = useCallback(
-    async (kind: 'image' | 'file'): Promise<void> => {
+    async (kind: 'image' | 'video' | 'file'): Promise<void> => {
       if (!editor || importing) return
       setImporting(kind)
       try {
         const media = await window.canvasNote.media.importFile(kind)
         if (!media) return
-        const position = getNextShapePosition(editor, kind === 'image' ? 360 : 320, 240)
+        const width = kind === 'video' ? 480 : kind === 'image' ? 360 : 320
+        const height = kind === 'video' ? 360 : kind === 'image' ? 240 : 148
+        const position = getNextShapePosition(editor, width, height)
         const shape =
           kind === 'image'
             ? createCNImageShape(position.x, position.y, {
@@ -316,13 +407,19 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                 mediaPath: media.relativePath,
                 altText: media.filename
               })
-            : createCNFileShape(position.x, position.y, {
-                mediaId: media.id,
-                mediaPath: media.relativePath,
-                filename: media.filename,
-                extension: media.extension,
-                sizeBytes: media.sizeBytes
-              })
+            : kind === 'video'
+              ? createCNLocalVideoShape(position.x, position.y, {
+                  mediaId: media.id,
+                  mediaPath: media.relativePath,
+                  caption: media.filename
+                })
+              : createCNFileShape(position.x, position.y, {
+                  mediaId: media.id,
+                  mediaPath: media.relativePath,
+                  filename: media.filename,
+                  extension: media.extension,
+                  sizeBytes: media.sizeBytes
+                })
         editor.createShape(shape).select(shape.id)
       } catch {
         setNotice(`CanvasNote could not import that ${kind}.`)
@@ -332,6 +429,37 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     },
     [editor, importing]
   )
+
+  const addEmbeddedVideo = useCallback(() => {
+    if (!editor) return
+    const parsed = parseEmbeddedVideoUrl(embedUrl)
+    if (!parsed) {
+      setEmbedError('Paste a valid HTTPS YouTube or Vimeo video URL.')
+      return
+    }
+    const position = getNextShapePosition(editor, 480, 360)
+    const shape = createCNEmbeddedVideoShape(position.x, position.y, parsed)
+    editor.createShape(shape).select(shape.id)
+    setEmbedUrl('')
+    setEmbedError(null)
+    setEmbedDialogOpen(false)
+  }, [editor, embedUrl])
+
+  useEffect(() => {
+    if (!editor) return
+    return onVideoShapeEvent((event) => {
+      if (event.type !== 'timestamp-note-request') return
+      const videoBounds = editor.getShapePageBounds(event.videoShapeId)
+      const position = videoBounds
+        ? { x: videoBounds.maxX + 32, y: videoBounds.y }
+        : getNextShapePosition(editor, 300, 180)
+      const shape = createCNTimestampNoteShape(position.x, position.y, {
+        videoNodeId: event.videoNodeId,
+        timestampSeconds: event.timestampSeconds
+      })
+      editor.createShape(shape).select(shape.id).setEditingShape(shape.id)
+    })
+  }, [editor])
 
   useEffect(() => {
     if (!editor) return
@@ -368,7 +496,8 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
 
       switch (key) {
         case 'v':
-          setTool('select')
+          if (event.shiftKey) void importMedia('video')
+          else setTool('select')
           break
         case 'h':
           setTool('hand')
@@ -445,6 +574,11 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
       : null
   const imageShape = selectedShape && isCNImageShape(selectedShape) ? selectedShape : null
   const fileShape = selectedShape && isCNFileShape(selectedShape) ? selectedShape : null
+  const localVideoShape = selectedShape && isCNLocalVideoShape(selectedShape) ? selectedShape : null
+  const embeddedVideoShape =
+    selectedShape && isCNEmbeddedVideoShape(selectedShape) ? selectedShape : null
+  const timestampShape =
+    selectedShape && isCNTimestampNoteShape(selectedShape) ? selectedShape : null
 
   const updateImageShape = useCallback(
     (props: Partial<Pick<CNImageShape['props'], 'caption' | 'altText' | 'fit' | 'tags'>>) => {
@@ -468,6 +602,55 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
       })
     },
     [editor, fileShape]
+  )
+
+  const updateLocalVideoShape = useCallback(
+    (props: Partial<Pick<CNLocalVideoShape['props'], 'caption' | 'playbackRate' | 'tags'>>) => {
+      if (!editor || !localVideoShape) return
+      editor.updateShape<CNLocalVideoShape>({
+        id: localVideoShape.id,
+        type: CN_LOCAL_VIDEO_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, localVideoShape]
+  )
+
+  const updateEmbeddedVideoShape = useCallback(
+    (props: Partial<Pick<CNEmbeddedVideoShape['props'], 'caption' | 'tags'>>) => {
+      if (!editor || !embeddedVideoShape) return
+      editor.updateShape<CNEmbeddedVideoShape>({
+        id: embeddedVideoShape.id,
+        type: CN_EMBEDDED_VIDEO_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, embeddedVideoShape]
+  )
+
+  const updateTimestampShape = useCallback(
+    (
+      props: Partial<
+        Pick<
+          CNTimestampNoteShape['props'],
+          | 'timestampSeconds'
+          | 'content'
+          | 'background'
+          | 'textColor'
+          | 'fontSize'
+          | 'textAlign'
+          | 'tags'
+        >
+      >
+    ) => {
+      if (!editor || !timestampShape) return
+      editor.updateShape<CNTimestampNoteShape>({
+        id: timestampShape.id,
+        type: CN_TIMESTAMP_NOTE_TYPE,
+        props: { ...props, updatedAt: new Date().toISOString() }
+      })
+    },
+    [editor, timestampShape]
   )
 
   const goBack = async (): Promise<void> => {
@@ -614,6 +797,27 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
               )}
             </ToolButton>
             <ToolButton
+              label="Import local video"
+              shortcut="Shift+V"
+              disabled={importing !== null}
+              onClick={() => void importMedia('video')}
+            >
+              {importing === 'video' ? (
+                <LoaderCircle className="animate-spin" size={18} />
+              ) : (
+                <Video size={18} />
+              )}
+            </ToolButton>
+            <ToolButton
+              label="Embed YouTube or Vimeo video"
+              onClick={() => {
+                setEmbedError(null)
+                setEmbedDialogOpen(true)
+              }}
+            >
+              <MonitorPlay size={18} />
+            </ToolButton>
+            <ToolButton
               label="Attach file"
               disabled={importing !== null}
               onClick={() => void importMedia('file')}
@@ -690,15 +894,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                 </p>
                 <h2 className="mt-0.5 text-sm font-semibold">
                   {selectedShape
-                    ? textShape
-                      ? isCNNoteShape(textShape)
-                        ? 'Note'
-                        : 'Checklist'
-                      : imageShape
-                        ? 'Image'
-                        : fileShape
-                          ? 'File'
-                          : 'Object'
+                    ? selectedShapeLabel(selectedShape)
                     : selectedShapeIds.length > 1
                       ? `${selectedShapeIds.length} objects`
                       : 'No selection'}
@@ -716,7 +912,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
 
             {!selectedShape && selectedShapeIds.length === 0 ? (
               <div className="px-4 py-5 text-xs leading-5 text-muted">
-                Select a note, checklist, image, file, frame, or connection to edit its properties.
+                Select a note, checklist, media card, frame, or connection to edit its properties.
               </div>
             ) : !selectedShape ? (
               <div className="canvas-properties-body">
@@ -806,27 +1002,12 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       </div>
                     </fieldset>
 
-                    <label className="canvas-property-group">
-                      <span>Tags</span>
-                      <input
-                        key={`${textShape.id}:${textShape.props.tags.join(',')}`}
-                        type="text"
-                        defaultValue={textShape.props.tags.join(', ')}
-                        placeholder="research, ideas"
-                        onBlur={(event) =>
-                          updateTextShape({
-                            tags: event.target.value
-                              .split(',')
-                              .map((tag) => tag.trim())
-                              .filter(Boolean)
-                              .slice(0, 50)
-                          })
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur()
-                        }}
-                      />
-                    </label>
+                    <TagsField
+                      id={textShape.id}
+                      tags={textShape.props.tags}
+                      placeholder="research, ideas"
+                      onChange={(tags) => updateTextShape({ tags })}
+                    />
                   </>
                 )}
 
@@ -866,27 +1047,12 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                         ))}
                       </div>
                     </fieldset>
-                    <label className="canvas-property-group">
-                      <span>Tags</span>
-                      <input
-                        key={`${imageShape.id}:${imageShape.props.tags.join(',')}`}
-                        type="text"
-                        defaultValue={imageShape.props.tags.join(', ')}
-                        placeholder="reference, visual"
-                        onBlur={(event) =>
-                          updateImageShape({
-                            tags: event.target.value
-                              .split(',')
-                              .map((tag) => tag.trim())
-                              .filter(Boolean)
-                              .slice(0, 50)
-                          })
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur()
-                        }}
-                      />
-                    </label>
+                    <TagsField
+                      id={imageShape.id}
+                      tags={imageShape.props.tags}
+                      placeholder="reference, visual"
+                      onChange={(tags) => updateImageShape({ tags })}
+                    />
                   </>
                 )}
 
@@ -896,27 +1062,150 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
                       <span>File</span>
                       <p className="m-0 break-all text-xs text-muted">{fileShape.props.filename}</p>
                     </div>
+                    <TagsField
+                      id={fileShape.id}
+                      tags={fileShape.props.tags}
+                      placeholder="source, attachment"
+                      onChange={(tags) => updateFileShape({ tags })}
+                    />
+                  </>
+                )}
+
+                {localVideoShape && (
+                  <>
                     <label className="canvas-property-group">
-                      <span>Tags</span>
+                      <span>Caption</span>
                       <input
-                        key={`${fileShape.id}:${fileShape.props.tags.join(',')}`}
                         type="text"
-                        defaultValue={fileShape.props.tags.join(', ')}
-                        placeholder="source, attachment"
-                        onBlur={(event) =>
-                          updateFileShape({
-                            tags: event.target.value
-                              .split(',')
-                              .map((tag) => tag.trim())
-                              .filter(Boolean)
-                              .slice(0, 50)
-                          })
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur()
-                        }}
+                        value={localVideoShape.props.caption}
+                        maxLength={2_000}
+                        onChange={(event) => updateLocalVideoShape({ caption: event.target.value })}
                       />
                     </label>
+                    <label className="canvas-property-group">
+                      <span>Playback speed</span>
+                      <select
+                        value={localVideoShape.props.playbackRate}
+                        onChange={(event) =>
+                          updateLocalVideoShape({ playbackRate: Number(event.target.value) })
+                        }
+                      >
+                        {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                          <option key={rate} value={rate}>
+                            {rate}×
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      onClick={() =>
+                        requestTimestampNote(canvasNoteId(localVideoShape), localVideoShape.id)
+                      }
+                    >
+                      <Clock3 size={15} /> Add note at current time
+                    </button>
+                    <TagsField
+                      id={localVideoShape.id}
+                      tags={localVideoShape.props.tags}
+                      placeholder="interview, source"
+                      onChange={(tags) => updateLocalVideoShape({ tags })}
+                    />
+                  </>
+                )}
+
+                {embeddedVideoShape && (
+                  <>
+                    <label className="canvas-property-group">
+                      <span>Caption</span>
+                      <input
+                        type="text"
+                        value={embeddedVideoShape.props.caption}
+                        maxLength={2_000}
+                        onChange={(event) =>
+                          updateEmbeddedVideoShape({ caption: event.target.value })
+                        }
+                      />
+                    </label>
+                    <div className="canvas-property-group">
+                      <span>Source</span>
+                      <p className="m-0 break-all text-xs font-normal text-muted">
+                        {embeddedVideoShape.props.url}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="canvas-secondary-action"
+                      onClick={() =>
+                        requestTimestampNote(
+                          canvasNoteId(embeddedVideoShape),
+                          embeddedVideoShape.id
+                        )
+                      }
+                    >
+                      <Clock3 size={15} /> Add note at current time
+                    </button>
+                    <TagsField
+                      id={embeddedVideoShape.id}
+                      tags={embeddedVideoShape.props.tags}
+                      placeholder="video, reference"
+                      onChange={(tags) => updateEmbeddedVideoShape({ tags })}
+                    />
+                  </>
+                )}
+
+                {timestampShape && (
+                  <>
+                    <label className="canvas-property-group">
+                      <span>Timestamp (seconds)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={604_800}
+                        step={0.1}
+                        value={timestampShape.props.timestampSeconds}
+                        onChange={(event) =>
+                          updateTimestampShape({
+                            timestampSeconds: Math.min(
+                              604_800,
+                              Math.max(0, event.target.valueAsNumber || 0)
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="canvas-property-group">
+                      <span>Note</span>
+                      <textarea
+                        value={timestampShape.props.content}
+                        maxLength={100_000}
+                        rows={5}
+                        onChange={(event) => updateTimestampShape({ content: event.target.value })}
+                      />
+                    </label>
+                    <fieldset className="canvas-property-group">
+                      <legend>Background</legend>
+                      <div className="flex flex-wrap gap-2">
+                        {BACKGROUNDS.map((background) => (
+                          <button
+                            type="button"
+                            key={background.value}
+                            className={`canvas-color-chip ${timestampShape.props.background === background.value ? 'is-active' : ''}`}
+                            style={{ background: background.color }}
+                            aria-label={`${background.label} background`}
+                            aria-pressed={timestampShape.props.background === background.value}
+                            onClick={() => updateTimestampShape({ background: background.value })}
+                          />
+                        ))}
+                      </div>
+                    </fieldset>
+                    <TagsField
+                      id={timestampShape.id}
+                      tags={timestampShape.props.tags}
+                      placeholder="quote, insight"
+                      onChange={(tags) => updateTimestampShape({ tags })}
+                    />
                   </>
                 )}
 
@@ -953,6 +1242,57 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           </aside>
         )}
       </section>
+
+      {embedDialogOpen && (
+        <div className="canvas-dialog-backdrop">
+          <form
+            className="canvas-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="embed-video-title"
+            onSubmit={(event) => {
+              event.preventDefault()
+              addEmbeddedVideo()
+            }}
+          >
+            <div className="canvas-dialog-header">
+              <div>
+                <p>Video</p>
+                <h2 id="embed-video-title">Embed YouTube or Vimeo</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close video dialog"
+                onClick={() => setEmbedDialogOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <label>
+              <span>Video URL</span>
+              <input
+                autoFocus
+                type="url"
+                value={embedUrl}
+                placeholder="https://www.youtube.com/watch?v=…"
+                onChange={(event) => {
+                  setEmbedUrl(event.target.value)
+                  setEmbedError(null)
+                }}
+              />
+            </label>
+            {embedError && <p className="canvas-dialog-error">{embedError}</p>}
+            <div className="canvas-dialog-actions">
+              <button type="button" onClick={() => setEmbedDialogOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="is-primary">
+                Embed video
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   )
 }

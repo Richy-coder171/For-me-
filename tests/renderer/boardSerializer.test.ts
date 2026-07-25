@@ -104,6 +104,61 @@ function testBoard(): BoardFile {
         sizeBytes: 2048,
         createdAt: now,
         updatedAt: now
+      },
+      {
+        id: 'video-1',
+        type: 'local-video',
+        x: 800,
+        y: 60,
+        width: 480,
+        height: 360,
+        rotation: 0,
+        locked: false,
+        tags: ['source'],
+        mediaId: 'media:video-1',
+        mediaPath: 'media/videos/interview.mp4',
+        caption: 'Interview',
+        durationSeconds: 180,
+        playbackRate: 1.25,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'video-2',
+        type: 'embedded-video',
+        x: 1320,
+        y: 60,
+        width: 480,
+        height: 360,
+        rotation: 0,
+        locked: false,
+        tags: [],
+        provider: 'vimeo',
+        url: 'https://vimeo.com/123456',
+        videoId: '123456',
+        caption: 'External source',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'timestamp-1',
+        type: 'timestamp-note',
+        x: 800,
+        y: 450,
+        width: 300,
+        height: 180,
+        rotation: 0,
+        locked: false,
+        tags: ['quote'],
+        videoNodeId: 'video-1',
+        timestampSeconds: 75.5,
+        content: 'Important answer',
+        background: 'amber',
+        textColor: '#202124',
+        fontSize: 16,
+        textAlign: 'left',
+        createdAt: now,
+        updatedAt: now
       }
     ],
     connections: [
@@ -136,6 +191,9 @@ describe('board serializer', () => {
     const checklist = result.records.find((record) => record.id === 'shape:checklist-1')
     const image = result.records.find((record) => record.id === 'shape:image-1')
     const file = result.records.find((record) => record.id === 'shape:file-1')
+    const localVideo = result.records.find((record) => record.id === 'shape:video-1')
+    const embeddedVideo = result.records.find((record) => record.id === 'shape:video-2')
+    const timestamp = result.records.find((record) => record.id === 'shape:timestamp-1')
 
     expect(frame).toMatchObject({
       typeName: 'shape',
@@ -175,6 +233,18 @@ describe('board serializer', () => {
         sizeBytes: 2048
       }
     })
+    expect(localVideo).toMatchObject({
+      type: 'cn-local-video',
+      props: { mediaPath: 'media/videos/interview.mp4', playbackRate: 1.25 }
+    })
+    expect(embeddedVideo).toMatchObject({
+      type: 'cn-embedded-video',
+      props: { provider: 'vimeo', videoId: '123456' }
+    })
+    expect(timestamp).toMatchObject({
+      type: 'cn-timestamp-note',
+      props: { videoNodeId: 'video-1', timestampSeconds: 75.5 }
+    })
 
     const schema = createTLSchema()
     for (const record of result.records.filter(
@@ -200,19 +270,19 @@ describe('board serializer', () => {
       nodes: [
         ...base.nodes,
         {
-          id: 'video-1',
-          type: 'local-video',
+          id: 'link-1',
+          type: 'link',
           x: 800,
           y: 60,
-          width: 640,
-          height: 390,
+          width: 320,
+          height: 180,
           rotation: 0,
           locked: false,
           tags: ['source'],
-          mediaId: 'media:video-1',
-          mediaPath: 'media/videos/interview.mp4',
-          caption: 'Interview',
-          playbackRate: 1,
+          url: 'https://example.com/source',
+          title: 'Source',
+          description: 'External reference',
+          domain: 'example.com',
           createdAt: now,
           updatedAt: now
         }
@@ -220,10 +290,10 @@ describe('board serializer', () => {
       connections: [
         ...base.connections,
         {
-          id: 'connection-video',
+          id: 'connection-link',
           type: 'line',
           sourceNodeId: 'note-1',
-          targetNodeId: 'video-1',
+          targetNodeId: 'link-1',
           label: 'source',
           style: 'solid',
           createdAt: now,
@@ -239,10 +309,10 @@ describe('board serializer', () => {
       expect.arrayContaining(['unsupported-node', 'unsupported-connection'])
     )
     expect(saved.board.nodes).toContainEqual(
-      expect.objectContaining({ id: 'video-1', type: 'local-video' })
+      expect.objectContaining({ id: 'link-1', type: 'link' })
     )
     expect(saved.board.connections).toContainEqual(
-      expect.objectContaining({ id: 'connection-video', targetNodeId: 'video-1' })
+      expect.objectContaining({ id: 'connection-link', targetNodeId: 'link-1' })
     )
   })
 
