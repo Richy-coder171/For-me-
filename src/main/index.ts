@@ -8,7 +8,10 @@ import { MEDIA_SCHEME, mediaPathFromUrl } from '../shared/schemas/media'
 import { IPC_CHANNELS } from '../shared/ipc'
 import { registerHandlers } from './ipc/registerHandlers'
 import { parseByteRange } from './security/byteRange'
-import { isCanvasNoteDocumentResponse } from './security/contentSecurityPolicy'
+import {
+  contentSecurityPolicy,
+  isCanvasNoteDocumentResponse
+} from './security/contentSecurityPolicy'
 import { DatabaseService } from './services/databaseService'
 import { MediaService, mediaMimeType } from './services/mediaService'
 import { ExportService } from './services/exportService'
@@ -49,24 +52,6 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
   }
 ])
-
-function contentSecurityPolicy(): string {
-  const connectSource = app.isPackaged ? "'self'" : "'self' ws: http://localhost:*"
-  return [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: canvasnote-media:",
-    "font-src 'self' data:",
-    "media-src 'self' blob: canvasnote-media:",
-    'frame-src https://www.youtube-nocookie.com https://player.vimeo.com',
-    `connect-src ${connectSource}`,
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'"
-  ].join('; ')
-}
 
 function rendererDocumentUrl(): string {
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
@@ -160,7 +145,7 @@ app.whenReady().then(() => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [contentSecurityPolicy()]
+        'Content-Security-Policy': [contentSecurityPolicy(app.isPackaged)]
       }
     })
   })

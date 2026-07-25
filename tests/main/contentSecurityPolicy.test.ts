@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { isCanvasNoteDocumentResponse } from '../../src/main/security/contentSecurityPolicy'
+import {
+  contentSecurityPolicy,
+  isCanvasNoteDocumentResponse
+} from '../../src/main/security/contentSecurityPolicy'
+
+describe('CanvasNote CSP values', () => {
+  it('allows the Vite bootstrap only during development', () => {
+    expect(contentSecurityPolicy(false)).toContain("script-src 'self' 'unsafe-inline'")
+    expect(contentSecurityPolicy(false)).toContain("connect-src 'self' ws: http://localhost:*")
+    expect(contentSecurityPolicy(true)).toContain("script-src 'self';")
+    expect(contentSecurityPolicy(true)).not.toContain("script-src 'self' 'unsafe-inline'")
+  })
+})
 
 describe('CanvasNote CSP response scope', () => {
   const documentUrl = 'http://localhost:5173'
