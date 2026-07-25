@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type { AppInfo } from '../../shared/ipc'
 import type { BoardFile, BoardSummary, OpenBoard, WorkspaceStats } from '../../shared/schemas/board'
 import type { WorkspaceSummary } from '../../shared/schemas/workspace'
+import type { TemplateId } from '../../shared/templates'
 
 type Operation =
   | 'idle'
@@ -14,7 +15,7 @@ type Operation =
   | 'opening-board'
   | 'saving-board'
 
-export type BoardSection = 'recent' | 'all' | 'favorites' | 'trash'
+export type BoardSection = 'recent' | 'all' | 'favorites' | 'templates' | 'trash'
 export type BoardView = 'grid' | 'list'
 
 interface AppState {
@@ -39,6 +40,7 @@ interface AppState {
   setBoardView: (view: BoardView) => void
   setBoardQuery: (query: string) => void
   createBoard: (title: string) => Promise<void>
+  createBoardFromTemplate: (templateId: TemplateId) => Promise<void>
   openBoard: (boardId: string) => Promise<void>
   closeBoard: () => Promise<void>
   saveBoard: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
@@ -164,6 +166,16 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ operation: 'creating-board', error: null })
       try {
         const currentBoard = await window.canvasNote.boards.create(title)
+        set({ currentBoard, operation: 'idle' })
+      } catch (error) {
+        throw fail(error)
+      }
+    },
+
+    createBoardFromTemplate: async (templateId) => {
+      set({ operation: 'creating-board', error: null })
+      try {
+        const currentBoard = await window.canvasNote.boards.createFromTemplate(templateId)
         set({ currentBoard, operation: 'idle' })
       } catch (error) {
         throw fail(error)

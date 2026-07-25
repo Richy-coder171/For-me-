@@ -35,3 +35,6 @@ All notable CanvasNote changes are documented here.
 - Timestamp notes that capture the active local/embedded video time, retain an editable source link, and select/seek the linked video when clicked.
 - Readable serialization for local video, embedded video, and timestamp-note shapes without persisting runtime URLs or player state.
 - Built-Electron coverage using Chromium's tiny VP8 fixture for import, playback metadata, timestamp creation/seek, provider embed normalization, save, and reopen.
+- Rebuildable SQLite full-text indexing for board titles, notes, checklists, tags, files, links, and media captions, with content-aware dashboard filtering.
+- Keyboard-navigable in-board search with object/tag filters, highlighted matches, and select-and-zoom focus via `Ctrl/Cmd+K`.
+- Six editable starter templates for video research, study, moodboards, project planning, content planning, and learning roadmaps.

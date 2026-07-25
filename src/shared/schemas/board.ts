@@ -247,7 +247,8 @@ export const boardSummarySchema = z
     openedAt: isoDateSchema.nullable(),
     isFavorite: z.boolean(),
     deletedAt: isoDateSchema.nullable(),
-    itemCount: z.number().int().nonnegative()
+    itemCount: z.number().int().nonnegative(),
+    searchText: z.string().max(2_000_000).optional()
   })
   .strict()
 

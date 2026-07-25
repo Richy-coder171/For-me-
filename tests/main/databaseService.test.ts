@@ -7,6 +7,7 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { DatabaseService } from '../../src/main/services/databaseService'
+import { createBoardFromTemplate } from '../../src/shared/templates'
 
 describe('DatabaseService', () => {
   let root: string
@@ -36,6 +37,12 @@ describe('DatabaseService', () => {
       openedAt: '2026-07-25T10:00:00.000Z',
       itemCount: 3
     })
+    const indexedBoard = createBoardFromTemplate(
+      'board-one',
+      'video-research',
+      new Date('2026-07-25T08:00:00.000Z')
+    )
+    service.indexBoardContent(indexedBoard)
 
     const database = new Database(databasePath, { readonly: true })
     expect(database.pragma('user_version', { simple: true })).toBe(1)
@@ -43,6 +50,8 @@ describe('DatabaseService', () => {
     expect(
       database.prepare("SELECT title FROM search_index WHERE search_index MATCH 'research'").get()
     ).toEqual({ title: 'Video Research' })
+    expect(service.searchBoardIds('strongest evidence')).toEqual(['board-one'])
+    expect(service.searchTextByBoard().get('board-one')).toContain('What do I want to learn')
     database.close()
   })
 

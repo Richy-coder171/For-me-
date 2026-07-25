@@ -11,6 +11,7 @@ import {
   type OpenBoard
 } from '../../shared/schemas/board'
 import { stableIdSchema } from '../../shared/schemas/common'
+import { createBoardFromTemplate, type TemplateId } from '../../shared/templates'
 import { assertNoSymlinkEscape } from '../security/pathValidation'
 
 const BOARD_EXTENSION = '.canvasnote'
@@ -177,6 +178,10 @@ export class BoardService {
 
   async create(title: string): Promise<StoredBoard> {
     return this.save(createEmptyBoard(`board-${randomUUID()}`, title))
+  }
+
+  async createFromTemplate(templateId: TemplateId): Promise<StoredBoard> {
+    return this.save(createBoardFromTemplate(`board-${randomUUID()}`, templateId))
   }
 
   async read(id: string): Promise<StoredBoard> {

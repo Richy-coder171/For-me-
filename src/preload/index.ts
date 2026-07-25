@@ -10,6 +10,7 @@ import type {
 } from '../shared/schemas/board'
 import type { ImportedMedia, MediaKind } from '../shared/schemas/media'
 import type { WorkspaceSummary } from '../shared/schemas/workspace'
+import { templateIdSchema } from '../shared/templates'
 
 function workspaceName(value: string): string {
   const name = value.trim()
@@ -100,6 +101,11 @@ const api: CanvasNoteApi = {
       ipcRenderer.invoke(IPC_CHANNELS.boardCreate, {
         title: boardTitle(title)
       }) as Promise<OpenBoard>,
+    createFromTemplate: (templateId) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.boardCreateFromTemplate,
+        templateIdSchema.parse(templateId)
+      ) as Promise<OpenBoard>,
     open: (boardId) =>
       ipcRenderer.invoke(IPC_CHANNELS.boardOpen, {
         boardId: stableId(boardId)

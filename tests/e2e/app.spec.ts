@@ -265,4 +265,25 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByRole('button', { name: 'Back to boards' }).click()
   await page.getByRole('button', { name: 'Open Edited video research' }).click()
   await expect(page.getByText('File unavailable')).toBeVisible()
+
+  await page.keyboard.press('Control+K')
+  const boardSearch = page.getByRole('searchbox', {
+    name: 'Search notes, tags, files, and captions'
+  })
+  await boardSearch.fill('key interview moment')
+  await expect(page.getByRole('option', { name: /Key interview moment/i })).toBeVisible()
+  await page.getByRole('option', { name: /Key interview moment/i }).click()
+  await expect(page.getByLabel('Timestamp note content')).toHaveValue('Key interview moment')
+
+  await page.getByRole('button', { name: 'Back to boards' }).click()
+  const dashboardSearch = page.getByRole('searchbox', { name: 'Search boards' })
+  await dashboardSearch.fill('key interview moment')
+  await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear board search' }).click()
+
+  await page.getByRole('button', { name: /^Templates/ }).click()
+  await page.getByRole('button', { name: /Video research.*Capture questions/i }).click()
+  await page.getByRole('button', { name: 'Zoom to fit' }).click()
+  await expect(page.getByText('Research question')).toBeVisible()
+  await expect(page.getByText('What do I want to learn?')).toBeVisible()
 })

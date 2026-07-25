@@ -74,6 +74,7 @@ export default function App(): React.JSX.Element {
           onViewChange={store.setBoardView}
           onQueryChange={store.setBoardQuery}
           onCreateBoard={store.createBoard}
+          onCreateTemplate={store.createBoardFromTemplate}
           onOpenBoard={(boardId) => void store.openBoard(boardId).catch(() => undefined)}
           onToggleFavorite={(boardId, favorite) =>
             void store.toggleFavorite(boardId, favorite).catch(() => undefined)

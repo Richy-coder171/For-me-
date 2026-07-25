@@ -13,6 +13,7 @@ import {
 import { stableIdSchema } from '../../shared/schemas/common'
 import { mediaImportRequestSchema, mediaPathRequestSchema } from '../../shared/schemas/media'
 import { createWorkspaceRequestSchema } from '../../shared/schemas/workspace'
+import { templateIdSchema } from '../../shared/templates'
 import { BoardService, type StoredBoard } from '../services/boardService'
 import { DatabaseService, type BoardMetadata } from '../services/databaseService'
 import type { MediaService } from '../services/mediaService'
@@ -26,7 +27,7 @@ function senderWindow(event: Electron.IpcMainInvokeEvent): BrowserWindow {
   return window
 }
 
-function toSummary(board: BoardMetadata): BoardSummary {
+function toSummary(board: BoardMetadata, searchText?: string): BoardSummary {
   return {
     id: board.id,
     title: board.title,
@@ -35,7 +36,8 @@ function toSummary(board: BoardMetadata): BoardSummary {
     openedAt: board.openedAt,
     isFavorite: board.favorite,
     deletedAt: board.deletedAt,
-    itemCount: board.itemCount
+    itemCount: board.itemCount,
+    ...(searchText ? { searchText } : {})
   }
 }
 
@@ -78,7 +80,10 @@ export function registerHandlers(
       database.initialize(root)
       boards = new BoardService(root)
       const storedBoards = await boards.list()
-      for (const stored of storedBoards) database.upsertBoard(metadataFor(stored))
+      for (const stored of storedBoards) {
+        database.upsertBoard(metadataFor(stored))
+        database.indexBoardContent(stored.board)
+      }
       return workspace
     } catch (error) {
       database.close()
@@ -90,6 +95,7 @@ export function registerHandlers(
 
   const indexBoard = (stored: StoredBoard, openedAt?: string): void => {
     database.upsertBoard(metadataFor(stored, openedAt))
+    database.indexBoardContent(stored.board)
   }
 
   ipcMain.handle(IPC_CHANNELS.appInfo, (event) => {
@@ -139,17 +145,24 @@ export function registerHandlers(
       trashed: request.view === 'trash',
       favorite: request.view === 'favorites' ? true : undefined
     })
-    const query = request.query.toLocaleLowerCase()
-    const filtered = query
-      ? rows.filter((board) => board.title.toLocaleLowerCase().includes(query))
-      : rows
-    return (request.view === 'recent' ? filtered.slice(0, 12) : filtered).map(toSummary)
+    const matchingIds = request.query ? new Set(database.searchBoardIds(request.query)) : null
+    const filtered = matchingIds ? rows.filter((board) => matchingIds.has(board.id)) : rows
+    const searchText = database.searchTextByBoard()
+    return (request.view === 'recent' ? filtered.slice(0, 12) : filtered).map((board) =>
+      toSummary(board, searchText.get(board.id))
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.boardCreate, async (event, input: unknown) => {
     senderWindow(event)
     const request = boardCreateRequestSchema.parse(input)
     const stored = await requireBoards().create(request.title)
+    indexBoard(stored, new Date().toISOString())
+    return stored
+  })
+  ipcMain.handle(IPC_CHANNELS.boardCreateFromTemplate, async (event, input: unknown) => {
+    senderWindow(event)
+    const stored = await requireBoards().createFromTemplate(templateIdSchema.parse(input))
     indexBoard(stored, new Date().toISOString())
     return stored
   })

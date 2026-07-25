@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
@@ -22,6 +22,7 @@ import {
   Plus,
   Redo2,
   Save,
+  Search,
   StickyNote,
   Trash2,
   Undo2,
@@ -48,6 +49,7 @@ import {
 import type { BoardFile, OpenBoard } from '../../shared/schemas/board'
 import { BrandMark } from '../components/BrandMark'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
+import { searchBoard, type BoardSearchType } from './boardSearch'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
 import {
   CN_CHECKLIST_TYPE,
@@ -201,6 +203,19 @@ function TagsField({
   )
 }
 
+function HighlightedText({ text, query }: { text: string; query: string }): React.JSX.Element {
+  const needle = query.trim().split(/\s+/)[0]?.toLocaleLowerCase() ?? ''
+  const index = needle ? text.toLocaleLowerCase().indexOf(needle) : -1
+  if (index < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + needle.length)}</mark>
+      {text.slice(index + needle.length)}
+    </>
+  )
+}
+
 function ToolButton({
   label,
   shortcut,
@@ -247,6 +262,12 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
   const [embedUrl, setEmbedUrl] = useState('')
   const [embedError, setEmbedError] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchType, setSearchType] = useState<BoardSearchType>('all')
+  const [searchTag, setSearchTag] = useState('')
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0)
+  const [searchBoardSnapshot, setSearchBoardSnapshot] = useState(stored.board)
   const editorRef = useRef<Editor | null>(null)
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
@@ -461,13 +482,55 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
     })
   }, [editor])
 
+  const openSearch = useCallback(() => {
+    const currentEditor = editorRef.current
+    if (currentEditor) {
+      const camera = currentEditor.getCamera()
+      const result = tldrawToBoard(boardRef.current, currentEditor.store.allRecords(), {
+        x: camera.x,
+        y: camera.y,
+        zoom: camera.z
+      })
+      setSearchBoardSnapshot(result.board)
+    }
+    setActiveSearchIndex(0)
+    setSearchOpen(true)
+  }, [])
+
+  const searchResults = useMemo(
+    () => searchBoard(searchBoardSnapshot, searchQuery, searchType, searchTag),
+    [searchBoardSnapshot, searchQuery, searchTag, searchType]
+  )
+
+  const focusSearchResult = useCallback(
+    (index: number) => {
+      if (!editor) return
+      const result = searchResults[index]
+      if (!result) return
+      const id = createShapeId(result.nodeId)
+      if (!editor.getShape(id)) {
+        setNotice('That result is not available on the canvas.')
+        return
+      }
+      editor.select(id).zoomToSelection({ animation: { duration: 180 } })
+      setSearchOpen(false)
+    },
+    [editor, searchResults]
+  )
+
   useEffect(() => {
     if (!editor) return
 
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (isEditableTarget(event.target)) return
       const key = event.key.toLowerCase()
       const command = event.ctrlKey || event.metaKey
+
+      if (command && key === 'k') {
+        event.preventDefault()
+        openSearch()
+        return
+      }
+      if (isEditableTarget(event.target)) return
 
       if (command && key === 's') {
         event.preventDefault()
@@ -538,7 +601,7 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [createFrame, editor, importMedia, saveQueue, setTool])
+  }, [createFrame, editor, importMedia, openSearch, saveQueue, setTool])
 
   const updateTextShape = useCallback(
     (props: {
@@ -717,6 +780,15 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           )}
           <span className="hidden sm:inline">{saveLabel(saveState)}</span>
         </div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Search this board"
+          title="Search (Ctrl+K)"
+          onClick={openSearch}
+        >
+          <Search size={16} />
+        </button>
         <button
           type="button"
           className="icon-button"
@@ -1242,6 +1314,125 @@ export function BoardEditor({ stored, onBack, onSave }: BoardEditorProps): React
           </aside>
         )}
       </section>
+
+      {searchOpen && (
+        <div className="canvas-dialog-backdrop">
+          <section
+            className="canvas-dialog canvas-search-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="board-search-title"
+          >
+            <div className="canvas-dialog-header">
+              <div>
+                <p>Find locally</p>
+                <h2 id="board-search-title">Search this board</h2>
+              </div>
+              <button type="button" aria-label="Close search" onClick={() => setSearchOpen(false)}>
+                <X size={17} />
+              </button>
+            </div>
+            <label>
+              <span>Search notes, tags, files, and captions</span>
+              <input
+                autoFocus
+                type="search"
+                value={searchQuery}
+                placeholder="Type to search…"
+                onChange={(event) => {
+                  setSearchQuery(event.target.value)
+                  setActiveSearchIndex(0)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setSearchOpen(false)
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    setActiveSearchIndex((index) =>
+                      searchResults.length ? (index + 1) % searchResults.length : 0
+                    )
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    setActiveSearchIndex((index) =>
+                      searchResults.length
+                        ? (index - 1 + searchResults.length) % searchResults.length
+                        : 0
+                    )
+                  }
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    focusSearchResult(activeSearchIndex)
+                  }
+                }}
+              />
+            </label>
+            <div className="canvas-search-filters">
+              <label>
+                <span>Object type</span>
+                <select
+                  value={searchType}
+                  onChange={(event) => {
+                    setSearchType(event.target.value as BoardSearchType)
+                    setActiveSearchIndex(0)
+                  }}
+                >
+                  <option value="all">All objects</option>
+                  <option value="note">Notes</option>
+                  <option value="checklist">Checklists</option>
+                  <option value="timestamp-note">Timestamp notes</option>
+                  <option value="image">Images</option>
+                  <option value="local-video">Local videos</option>
+                  <option value="embedded-video">Embedded videos</option>
+                  <option value="file">Files</option>
+                  <option value="link">Links</option>
+                  <option value="frame">Frames</option>
+                </select>
+              </label>
+              <label>
+                <span>Tag</span>
+                <input
+                  value={searchTag}
+                  placeholder="Any tag"
+                  onChange={(event) => {
+                    setSearchTag(event.target.value)
+                    setActiveSearchIndex(0)
+                  }}
+                />
+              </label>
+            </div>
+            <div className="canvas-search-results" role="listbox" aria-label="Search results">
+              {searchResults.length > 0 ? (
+                searchResults.map((result, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeSearchIndex}
+                    className={index === activeSearchIndex ? 'is-active' : ''}
+                    key={result.nodeId}
+                    onMouseEnter={() => setActiveSearchIndex(index)}
+                    onClick={() => focusSearchResult(index)}
+                  >
+                    <span>
+                      <HighlightedText text={result.title} query={searchQuery} />
+                    </span>
+                    <small>{result.type.replaceAll('-', ' ')}</small>
+                    {result.excerpt && (
+                      <p>
+                        <HighlightedText text={result.excerpt} query={searchQuery} />
+                      </p>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <p className="canvas-search-empty">
+                  {searchQuery || searchTag ? 'No matching objects.' : 'Start typing to search.'}
+                </p>
+              )}
+            </div>
+            <p className="canvas-search-hint">↑↓ Navigate · Enter focus · Esc close</p>
+          </section>
+        </div>
+      )}
 
       {embedDialogOpen && (
         <div className="canvas-dialog-backdrop">

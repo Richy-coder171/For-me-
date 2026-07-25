@@ -7,6 +7,7 @@ import type {
 } from './schemas/board'
 import type { ImportedMedia, MediaKind } from './schemas/media'
 import type { WorkspaceSummary } from './schemas/workspace'
+import type { TemplateId } from './templates'
 
 export const IPC_CHANNELS = {
   appInfo: 'app:info',
@@ -18,6 +19,7 @@ export const IPC_CHANNELS = {
   workspaceStats: 'workspace:stats',
   boardList: 'board:list',
   boardCreate: 'board:create',
+  boardCreateFromTemplate: 'board:create-from-template',
   boardOpen: 'board:open',
   boardSave: 'board:save',
   boardFavorite: 'board:favorite',
@@ -50,6 +52,7 @@ export interface CanvasNoteApi {
   boards: {
     list: (request: BoardListRequest) => Promise<BoardSummary[]>
     create: (title: string) => Promise<OpenBoard>
+    createFromTemplate: (templateId: TemplateId) => Promise<OpenBoard>
     open: (boardId: string) => Promise<OpenBoard>
     save: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
     favorite: (boardId: string, favorite: boolean) => Promise<void>

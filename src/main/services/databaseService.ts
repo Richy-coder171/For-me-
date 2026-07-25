@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import Database from 'better-sqlite3'
 
+import type { BoardFile, CanvasNode } from '../../shared/schemas/board'
+
 const DATABASE_VERSION = 1
 
 const MIGRATIONS = [
@@ -121,6 +123,50 @@ interface BoardRow {
   item_count: number
 }
 
+interface SearchTextRow {
+  board_id: string
+  search_text: string
+}
+
+function searchableNode(node: CanvasNode): {
+  title: string
+  content: string
+  tags: string
+  caption: string
+} {
+  const tags = node.tags.join(' ')
+  switch (node.type) {
+    case 'note':
+      return { title: node.title, content: node.content, tags, caption: '' }
+    case 'checklist':
+      return {
+        title: node.title,
+        content: node.items.map(({ text }) => text).join(' '),
+        tags,
+        caption: ''
+      }
+    case 'image':
+      return { title: node.altText, content: node.altText, tags, caption: node.caption }
+    case 'local-video':
+      return { title: '', content: '', tags, caption: node.caption }
+    case 'embedded-video':
+      return { title: node.provider, content: node.url, tags, caption: node.caption }
+    case 'timestamp-note':
+      return { title: '', content: node.content, tags, caption: '' }
+    case 'link':
+      return {
+        title: node.title,
+        content: `${node.description} ${node.domain} ${node.url}`,
+        tags,
+        caption: ''
+      }
+    case 'file':
+      return { title: node.filename, content: node.extension, tags, caption: '' }
+    case 'frame':
+      return { title: node.title, content: '', tags, caption: '' }
+  }
+}
+
 function migrate(database: Database.Database): void {
   const currentVersion = database.pragma('user_version', { simple: true }) as number
   if (currentVersion > DATABASE_VERSION) {
@@ -197,6 +243,82 @@ export class DatabaseService {
       .run({ ...board, openedAt: board.openedAt ?? null })
 
     return this.getBoard(board.id)!
+  }
+
+  indexBoardContent(board: BoardFile): void {
+    const database = this.#getDatabase()
+    database.transaction(() => {
+      database
+        .prepare("DELETE FROM search_index WHERE board_id = ? AND object_type <> 'board'")
+        .run(board.id)
+      database.prepare('DELETE FROM media WHERE board_id = ?').run(board.id)
+      database.prepare('DELETE FROM board_tags WHERE board_id = ?').run(board.id)
+
+      const insertSearch = database.prepare(
+        `INSERT INTO search_index (
+          board_id, object_id, object_type, title, content, tags, caption
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      const insertTag = database.prepare('INSERT OR IGNORE INTO tags(name) VALUES (?)')
+      const linkTag = database.prepare(
+        'INSERT OR IGNORE INTO board_tags(board_id, tag_name) VALUES (?, ?)'
+      )
+      const insertMedia = database.prepare(
+        `INSERT INTO media (id, board_id, path, type, caption, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+
+      for (const node of board.nodes) {
+        const search = searchableNode(node)
+        insertSearch.run(
+          board.id,
+          node.id,
+          node.type,
+          search.title,
+          search.content,
+          search.tags,
+          search.caption
+        )
+        for (const tag of new Set(node.tags)) {
+          insertTag.run(tag)
+          linkTag.run(board.id, tag)
+        }
+        if (node.type === 'image' || node.type === 'local-video' || node.type === 'file') {
+          insertMedia.run(
+            `${board.id}:${node.mediaId}`,
+            board.id,
+            node.mediaPath,
+            node.type,
+            node.type === 'file' ? node.filename : node.caption,
+            node.createdAt,
+            node.updatedAt
+          )
+        }
+      }
+    })()
+  }
+
+  searchTextByBoard(): Map<string, string> {
+    const rows = this.#getDatabase()
+      .prepare(
+        `SELECT board_id,
+          group_concat(trim(title || ' ' || content || ' ' || tags || ' ' || caption), ' ')
+            AS search_text
+         FROM search_index
+         GROUP BY board_id`
+      )
+      .all() as SearchTextRow[]
+    return new Map(rows.map(({ board_id, search_text }) => [board_id, search_text ?? '']))
+  }
+
+  searchBoardIds(query: string): string[] {
+    const tokens = query.normalize('NFKC').match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 20) ?? []
+    if (tokens.length === 0) return []
+    const expression = tokens.map((token) => `"${token.replaceAll('"', '""')}"*`).join(' AND ')
+    const rows = this.#getDatabase()
+      .prepare('SELECT DISTINCT board_id FROM search_index WHERE search_index MATCH ?')
+      .all(expression) as Array<{ board_id: string }>
+    return rows.map(({ board_id }) => board_id)
   }
 
   listBoards(options: BoardListOptions = {}): BoardMetadata[] {

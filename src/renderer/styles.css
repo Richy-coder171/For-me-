@@ -587,6 +587,109 @@ button:not(:disabled) {
   color: white;
 }
 
+.canvas-search-dialog {
+  width: min(38rem, 100%);
+}
+
+.canvas-search-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 0.7rem;
+}
+
+.canvas-search-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.canvas-search-filters input,
+.canvas-search-filters select {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--canvas);
+  padding: 0.55rem 0.65rem;
+  color: var(--ink);
+  outline: 0;
+}
+
+.canvas-search-results {
+  max-height: min(22rem, 42vh);
+  margin-top: 0.8rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--canvas);
+  padding: 0.3rem;
+}
+
+.canvas-search-results button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.2rem 0.75rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  padding: 0.65rem 0.7rem;
+  color: var(--ink);
+  text-align: left;
+}
+
+.canvas-search-results button.is-active {
+  background: var(--accent-soft);
+}
+
+.canvas-search-results button > span {
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-search-results small {
+  color: var(--faint);
+  font-size: 0.6rem;
+  text-transform: capitalize;
+}
+
+.canvas-search-results button p,
+.canvas-search-empty,
+.canvas-search-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.canvas-search-results button p {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-search-results mark {
+  border-radius: 0.15rem;
+  background: color-mix(in srgb, var(--accent), transparent 72%);
+  color: inherit;
+}
+
+.canvas-search-empty {
+  padding: 1.4rem;
+  text-align: center;
+}
+
+.canvas-search-hint {
+  margin-top: 0.55rem;
+  text-align: right;
+}
+
 @media (max-width: 760px) {
   .canvas-header {
     gap: 0.4rem;

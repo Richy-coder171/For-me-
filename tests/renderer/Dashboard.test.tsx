@@ -64,6 +64,7 @@ function dashboardProps(overrides: Partial<DashboardProps> = {}): DashboardProps
     onViewChange: vi.fn(),
     onQueryChange: vi.fn(),
     onCreateBoard: vi.fn(),
+    onCreateTemplate: vi.fn(),
     onOpenBoard: vi.fn(),
     onToggleFavorite: vi.fn(),
     onTrashBoard: vi.fn(),
@@ -181,5 +182,28 @@ describe('Dashboard', () => {
 
     expect(onRestoreBoard).toHaveBeenCalledWith('board-archive')
     expect(screen.getByRole('button', { name: 'Delete Archived notes permanently' })).toBeEnabled()
+  })
+
+  it('creates boards from each editable template', () => {
+    const onCreateTemplate = vi.fn()
+    render(
+      <Dashboard
+        {...dashboardProps({ section: 'templates', onCreateTemplate })}
+      />
+    )
+
+    expect(screen.getByRole('heading', { name: 'Templates' })).toBeInTheDocument()
+    for (const name of [
+      'Video research',
+      'Study board',
+      'Moodboard',
+      'Project planning',
+      'Content planning',
+      'Learning roadmap'
+    ]) {
+      expect(screen.getByRole('button', { name: new RegExp(name) })).toBeEnabled()
+    }
+    fireEvent.click(screen.getByRole('button', { name: /Video research/ }))
+    expect(onCreateTemplate).toHaveBeenCalledWith('video-research')
   })
 })

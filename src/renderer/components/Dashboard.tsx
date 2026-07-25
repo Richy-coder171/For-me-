@@ -6,6 +6,7 @@ import {
   Grid2X2,
   HardDrive,
   LayoutGrid,
+  LayoutTemplate,
   List,
   LoaderCircle,
   Moon,
@@ -20,9 +21,10 @@ import {
 
 import type { BoardSummary } from '../../shared/schemas/board'
 import type { WorkspaceSummary } from '../../shared/schemas/workspace'
+import { BOARD_TEMPLATES, type TemplateId } from '../../shared/templates'
 import { BrandMark } from './BrandMark'
 
-export type DashboardSection = 'recent' | 'all' | 'favorites' | 'trash'
+export type DashboardSection = 'recent' | 'all' | 'favorites' | 'templates' | 'trash'
 export type DashboardView = 'grid' | 'list'
 
 export interface DashboardBoardRow extends BoardSummary {
@@ -48,6 +50,7 @@ export interface DashboardProps {
   onViewChange: (view: DashboardView) => void
   onQueryChange: (query: string) => void
   onCreateBoard: (title: string) => void | Promise<void>
+  onCreateTemplate: (templateId: TemplateId) => void | Promise<void>
   onOpenBoard: (boardId: string) => void
   onToggleFavorite: (boardId: string, favorite: boolean) => void
   onTrashBoard: (boardId: string) => void
@@ -65,6 +68,7 @@ const navItems: ReadonlyArray<{
   { section: 'recent', label: 'Recents', icon: Clock3 },
   { section: 'all', label: 'All boards', icon: LayoutGrid },
   { section: 'favorites', label: 'Favourites', icon: Star },
+  { section: 'templates', label: 'Templates', icon: LayoutTemplate },
   { section: 'trash', label: 'Trash', icon: Trash2 }
 ]
 
@@ -72,6 +76,7 @@ const sectionCopy: Record<DashboardSection, { title: string; description: string
   recent: { title: 'Recent boards', description: 'Pick up where you left off.' },
   all: { title: 'All boards', description: 'Everything in this workspace.' },
   favorites: { title: 'Favourites', description: 'Boards you want close at hand.' },
+  templates: { title: 'Templates', description: 'Start with useful editable objects.' },
   trash: { title: 'Trash', description: 'Restore boards you still need.' }
 }
 
@@ -98,6 +103,7 @@ function formatBytes(bytes: number): string {
 }
 
 function includesSection(board: DashboardBoardRow, section: DashboardSection): boolean {
+  if (section === 'templates') return false
   if (section === 'trash') return board.deletedAt !== null
   if (board.deletedAt !== null) return false
   if (section === 'favorites') return board.isFavorite
@@ -296,6 +302,7 @@ export function Dashboard({
   onViewChange,
   onQueryChange,
   onCreateBoard,
+  onCreateTemplate,
   onOpenBoard,
   onToggleFavorite,
   onTrashBoard,
@@ -313,12 +320,13 @@ export function Dashboard({
     () =>
       navItems.reduce<Record<DashboardSection, number>>(
         (counts, item) => {
-          counts[item.section] = boards.filter((board) =>
-            includesSection(board, item.section)
-          ).length
+          counts[item.section] =
+            item.section === 'templates'
+              ? BOARD_TEMPLATES.length
+              : boards.filter((board) => includesSection(board, item.section)).length
           return counts
         },
-        { recent: 0, all: 0, favorites: 0, trash: 0 }
+        { recent: 0, all: 0, favorites: 0, templates: BOARD_TEMPLATES.length, trash: 0 }
       ),
     [boards]
   )
@@ -355,6 +363,19 @@ export function Dashboard({
       setShowCreate(false)
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Could not create the board.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function createTemplate(templateId: TemplateId): Promise<void> {
+    if (busy) return
+    setSubmitting(true)
+    setCreateError(null)
+    try {
+      await onCreateTemplate(templateId)
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Could not create the template.')
     } finally {
       setSubmitting(false)
     }
@@ -502,7 +523,13 @@ export function Dashboard({
                 <p className="mt-1 text-sm text-muted">{sectionCopy[section].description}</p>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {section === 'templates' ? (
+                <button type="button" className="primary-button" onClick={openCreateForm}>
+                  <Plus size={16} />
+                  Blank board
+                </button>
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <label className="relative min-w-0 sm:w-72">
                   <span className="sr-only">Search boards</span>
                   <Search
@@ -561,7 +588,8 @@ export function Dashboard({
                     New board
                   </button>
                 </div>
-              </div>
+                </div>
+              )}
             </div>
 
             {showCreate && (
@@ -624,6 +652,35 @@ export function Dashboard({
               </form>
             )}
 
+            {section === 'templates' ? (
+              <div className="mt-7">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {BOARD_TEMPLATES.map((template, index) => (
+                    <button
+                      type="button"
+                      key={template.id}
+                      disabled={busy}
+                      onClick={() => void createTemplate(template.id)}
+                      className={`group min-h-44 rounded-xl border border-line bg-surface p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent/35 hover:shadow-card disabled:opacity-50 motion-reduce:transform-none ${focusRing}`}
+                    >
+                      <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-sm font-bold text-accent">
+                        {index + 1}
+                      </span>
+                      <span className="mt-5 block text-sm font-semibold">{template.name}</span>
+                      <span className="mt-1.5 block text-xs leading-5 text-muted">
+                        {template.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {createError && (
+                  <p className="mt-4 text-sm text-danger" role="alert">
+                    {createError}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
             <div className="mt-7 flex items-center justify-between border-b border-line pb-3">
               <p className="text-xs font-medium text-muted">
                 {visibleBoards.length} {visibleBoards.length === 1 ? 'board' : 'boards'}
@@ -707,6 +764,8 @@ export function Dashboard({
                   )}
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         </section>
