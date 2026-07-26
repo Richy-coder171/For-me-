@@ -2,6 +2,14 @@
   "name": "canvasnote",
   "version": "0.1.0",
   "description": "A local-first visual notebook for notes, media, and timestamped video research.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Richy-coder171/For-me-.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Richy-coder171/For-me-/issues"
+  },
+  "homepage": "https://github.com/Richy-coder171/For-me-#readme",
   "private": true,
   "main": "out/main/index.js",
   "author": "Richy",

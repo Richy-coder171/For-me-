@@ -45,14 +45,14 @@ Missing timestamp/video and connection endpoints remain recoverable diagnostics 
 
 ## Media references
 
-Copied media uses a workspace-relative path such as `media/videos/clip-id.webm`. Absolute paths, traversal, backslashes, blob URLs, data URLs, and base64 media are invalid. Externally linked media keeps its machine-specific path only in the local SQLite index and is represented portably by asset ID in board data.
+Imported media is copied into the workspace and uses a relative path such as `media/videos/clip-id.webm`. Absolute paths, traversal, backslashes, blob URLs, data URLs, and base64 media are invalid. Version 1 does not define an external-file linking mode.
 
 ## Versioning
 
 - Readers validate the complete envelope before editing.
 - Version `1` changes remain backward-compatible and default missing optional values during migration.
 - A structural breaking change increments `version` and requires an explicit migration.
-- Unknown newer versions open read-only diagnostics and are never downgraded or overwritten.
+- Unknown newer versions are rejected without mutation and are never downgraded or overwritten.
 - Imports are size-limited before `JSON.parse`.
 
 Board saves use a temporary sibling file, flush, rotating backup, and atomic replacement. A trailing newline is canonical but not required for import.

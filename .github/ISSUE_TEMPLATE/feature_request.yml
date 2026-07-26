@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a focused improvement to an existing CanvasNote workflow.
+title: '[Feature]: '
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before the implementation. Do not include private workspace contents or unrelated feature bundles.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What task is difficult or impossible today, and who encounters it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the smallest change that would solve the problem.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Canvas
+        - Dashboard and workspaces
+        - Media and video
+        - Search and templates
+        - Import, export, and portability
+        - Settings and accessibility
+        - Documentation and development
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note any existing workflow or smaller alternative you tried.
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Data, security, and accessibility impact
+      description: Explain any effect on saved boards, workspace files, renderer privileges, keyboard use, or assistive technology.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: This request addresses one focused CanvasNote workflow.
+          required: true
+        - label: I have not included private workspace data or credentials.
+          required: true
+        - label: I agree to follow the CanvasNote Code of Conduct.
+          required: true
