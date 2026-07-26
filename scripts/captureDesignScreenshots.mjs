@@ -190,7 +190,8 @@ try {
     .fill('Key interview moment')
   await screenshot('timestamp-note.png')
 
-  await page.getByRole('button', { name: 'Add link card' }).click()
+  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByRole('menuitem', { name: 'Add link card' }).click()
   await page.getByLabel('URL').fill('example.com/research')
   await page.getByLabel('Title (optional)').fill('Research guide')
   await page.getByLabel('Description (optional)').fill('Supporting material for the synthesis.')

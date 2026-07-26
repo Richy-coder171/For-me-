@@ -106,6 +106,7 @@ const CANVAS_SHAPE_UTILS = [...defaultShapeUtils, ...canvasShapeUtils] as const
 const CANVAS_TOOLS = [...defaultTools, ...defaultShapeTools] as const
 const CANVAS_CLIPBOARD_MIME = 'application/x-canvasnote-tldraw'
 const MAX_CANVAS_CLIPBOARD_CHARS = 5_000_000
+const COMPACT_PROPERTIES_QUERY = '(max-width: 1079px)'
 
 const BACKGROUNDS: Array<{ value: CNTextBackground; label: string; color: string }> = [
   { value: 'paper', label: 'Paper', color: '#fffefa' },
@@ -294,6 +295,165 @@ function ToolButton({
     >
       {children}
     </button>
+  )
+}
+
+interface BoardAddMenuProps {
+  importing: 'image' | 'video' | 'file' | null
+  onAttachFile: () => void
+  onAddLink: () => void
+  onEmbedVideo: () => void
+}
+
+export function BoardAddMenu({
+  importing,
+  onAttachFile,
+  onAddLink,
+  onEmbedVideo
+}: BoardAddMenuProps): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const pendingFocusRef = useRef(0)
+
+  const focusItem = useCallback((start: number, direction: 1 | -1 = 1) => {
+    const items = itemRefs.current
+    for (let offset = 0; offset < items.length; offset += 1) {
+      const index = (start + offset * direction + items.length) % items.length
+      const item = items[index]
+      if (item && !item.disabled) {
+        item.focus()
+        return
+      }
+    }
+  }, [])
+
+  const openMenu = useCallback((focusIndex = 0) => {
+    pendingFocusRef.current = focusIndex
+    setOpen(true)
+  }, [])
+
+  const closeMenu = useCallback((restoreFocus = false) => {
+    setOpen(false)
+    if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    focusItem(pendingFocusRef.current, pendingFocusRef.current === 2 ? -1 : 1)
+    const closeOnOutsidePointer = (event: PointerEvent): void => {
+      if (!containerRef.current?.contains(event.target as Node)) closeMenu()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
+  }, [closeMenu, focusItem, open])
+
+  const handleItemKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ): void => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        focusItem(index + 1)
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        focusItem(index - 1, -1)
+        break
+      case 'Home':
+        event.preventDefault()
+        focusItem(0)
+        break
+      case 'End':
+        event.preventDefault()
+        focusItem(itemRefs.current.length - 1, -1)
+        break
+      case 'Escape':
+        event.preventDefault()
+        closeMenu(true)
+        break
+    }
+  }
+
+  const run = (action: () => void, restoreFocus = false): void => {
+    closeMenu(restoreFocus)
+    action()
+  }
+
+  return (
+    <div className="canvas-add-menu" ref={containerRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`canvas-tool ${open ? 'is-active' : ''}`}
+        aria-label="Add"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? 'canvas-add-menu' : undefined}
+        title="Add file, link, or embedded video"
+        onClick={() => (open ? closeMenu(true) : openMenu())}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            openMenu(event.key === 'ArrowUp' ? 2 : 0)
+          }
+        }}
+      >
+        <Plus size={18} />
+      </button>
+      {open && (
+        <div
+          id="canvas-add-menu"
+          className="canvas-add-popover"
+          role="menu"
+          aria-label="Add to board"
+        >
+          <button
+            ref={(element) => {
+              itemRefs.current[0] = element
+            }}
+            type="button"
+            role="menuitem"
+            disabled={importing !== null}
+            onKeyDown={(event) => handleItemKeyDown(event, 0)}
+            onClick={() => run(onAttachFile, true)}
+          >
+            {importing === 'file' ? (
+              <LoaderCircle className="animate-spin" size={16} />
+            ) : (
+              <Paperclip size={16} />
+            )}
+            Attach file
+          </button>
+          <button
+            ref={(element) => {
+              itemRefs.current[1] = element
+            }}
+            type="button"
+            role="menuitem"
+            onKeyDown={(event) => handleItemKeyDown(event, 1)}
+            onClick={() => run(onAddLink)}
+          >
+            <Globe2 size={16} />
+            Add link card
+          </button>
+          <button
+            ref={(element) => {
+              itemRefs.current[2] = element
+            }}
+            type="button"
+            role="menuitem"
+            onKeyDown={(event) => handleItemKeyDown(event, 2)}
+            onClick={() => run(onEmbedVideo)}
+          >
+            <MonitorPlay size={16} />
+            Embed YouTube or Vimeo video
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -624,7 +784,12 @@ export function BoardEditor({
   const [activeTool, setActiveTool] = useState('select')
   const [zoom, setZoom] = useState(stored.board.camera.zoom)
   const [revision, setRevision] = useState(stored.revision)
-  const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [propertiesOpen, setPropertiesOpen] = useState(
+    () => !(window.matchMedia?.(COMPACT_PROPERTIES_QUERY).matches ?? false)
+  )
+  const [hasCanvasObjects, setHasCanvasObjects] = useState(
+    stored.board.nodes.length > 0 || stored.board.connections.length > 0
+  )
   const [notice, setNotice] = useState<string | null>(null)
   const [importing, setImporting] = useState<'image' | 'video' | 'file' | null>(null)
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
@@ -648,6 +813,7 @@ export function BoardEditor({
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
   const revisionRef = useRef(stored.revision)
+  const propertiesPreferenceRef = useRef(true)
 
   const saveCurrentBoard = useCallback(async (): Promise<void> => {
     const currentEditor = editorRef.current
@@ -706,6 +872,18 @@ export function BoardEditor({
     saveQueue.schedule()
   }, [saveQueue])
 
+  const toggleProperties = useCallback(() => {
+    setPropertiesOpen((open) => {
+      propertiesPreferenceRef.current = !open
+      return !open
+    })
+  }, [])
+
+  const hideProperties = useCallback(() => {
+    propertiesPreferenceRef.current = false
+    setPropertiesOpen(false)
+  }, [])
+
   const handleMount = useCallback((mountedEditor: Editor) => {
     const loaded = boardToTldraw(boardRef.current, mountedEditor.getCurrentPageId())
     mountedEditor.store.put(loaded.records)
@@ -738,6 +916,7 @@ export function BoardEditor({
       setSelectedShape(selection.length === 1 ? editor.getOnlySelectedShape() : null)
       setActiveTool(editor.getCurrentToolId())
       setZoom(editor.getZoomLevel())
+      setHasCanvasObjects(editor.getCurrentPageShapes().length > 0)
       const camera = editor.getCamera()
       if (
         camera.x !== previousCamera.x ||
@@ -775,6 +954,16 @@ export function BoardEditor({
     window.addEventListener('blur', flushOnBlur)
     return () => window.removeEventListener('blur', flushOnBlur)
   }, [saveQueue])
+
+  useEffect(() => {
+    const media = window.matchMedia?.(COMPACT_PROPERTIES_QUERY)
+    if (!media) return
+    const applyCompactLayout = (event: MediaQueryListEvent): void => {
+      setPropertiesOpen(event.matches ? false : propertiesPreferenceRef.current)
+    }
+    media.addEventListener('change', applyCompactLayout)
+    return () => media.removeEventListener('change', applyCompactLayout)
+  }, [])
 
   const createFrame = useCallback(() => {
     if (!editor) return
@@ -1409,6 +1598,28 @@ export function BoardEditor({
           )}
           <span className="hidden sm:inline">{saveLabel(saveState)}</span>
         </div>
+        <div className="canvas-history-actions" role="group" aria-label="Edit history">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Undo"
+            title="Undo (Ctrl+Z)"
+            disabled={!editor?.canUndo()}
+            onClick={() => editor?.undo()}
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Redo"
+            title="Redo (Ctrl+Shift+Z)"
+            disabled={!editor?.canRedo()}
+            onClick={() => editor?.redo()}
+          >
+            <Redo2 size={16} />
+          </button>
+        </div>
         <button
           type="button"
           className="icon-button"
@@ -1451,7 +1662,7 @@ export function BoardEditor({
           className="icon-button"
           aria-label={propertiesOpen ? 'Hide properties' : 'Show properties'}
           aria-pressed={propertiesOpen}
-          onClick={() => setPropertiesOpen((open) => !open)}
+          onClick={toggleProperties}
         >
           {propertiesOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
         </button>
@@ -1547,35 +1758,18 @@ export function BoardEditor({
                 <Video size={18} />
               )}
             </ToolButton>
-            <ToolButton
-              label="Embed YouTube or Vimeo video"
-              onClick={() => {
-                setEmbedError(null)
-                setEmbedDialogOpen(true)
-              }}
-            >
-              <MonitorPlay size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Add link card"
-              onClick={() => {
+            <BoardAddMenu
+              importing={importing}
+              onAttachFile={() => void importMedia('file')}
+              onAddLink={() => {
                 setLinkError(null)
                 setLinkDialogOpen(true)
               }}
-            >
-              <Globe2 size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Attach file"
-              disabled={importing !== null}
-              onClick={() => void importMedia('file')}
-            >
-              {importing === 'file' ? (
-                <LoaderCircle className="animate-spin" size={18} />
-              ) : (
-                <Paperclip size={18} />
-              )}
-            </ToolButton>
+              onEmbedVideo={() => {
+                setEmbedError(null)
+                setEmbedDialogOpen(true)
+              }}
+            />
             <ToolButton label="New frame" shortcut="F" onClick={createFrame}>
               <Frame size={18} />
             </ToolButton>
@@ -1587,26 +1781,15 @@ export function BoardEditor({
             >
               <Link2 size={18} />
             </ToolButton>
-            <span className="canvas-tool-divider" />
-            <ToolButton
-              label="Undo"
-              shortcut="Ctrl+Z"
-              disabled={!editor?.canUndo()}
-              onClick={() => editor?.undo()}
-            >
-              <Undo2 size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Redo"
-              shortcut="Ctrl+Shift+Z"
-              disabled={!editor?.canRedo()}
-              onClick={() => editor?.redo()}
-            >
-              <Redo2 size={18} />
-            </ToolButton>
           </nav>
 
-          <div className="canvas-zoom" aria-label="Canvas zoom controls">
+          {editor && !hasCanvasObjects && (
+            <p className="canvas-empty-hint" role="status">
+              <strong>Start with a note.</strong> Press N or choose a tool on the left.
+            </p>
+          )}
+
+          <div className="canvas-zoom" role="group" aria-label="Canvas zoom controls">
             <button type="button" aria-label="Zoom out" onClick={() => editor?.zoomOut()}>
               <Minus size={15} />
             </button>
@@ -1652,7 +1835,7 @@ export function BoardEditor({
                 type="button"
                 className="canvas-panel-close"
                 aria-label="Hide properties"
-                onClick={() => setPropertiesOpen(false)}
+                onClick={hideProperties}
               >
                 <PanelRightClose size={16} />
               </button>
