@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties, type SyntheticEvent } from 'react'
+import { useEffect, useMemo, useRef, type SyntheticEvent } from 'react'
 import {
   BaseBoxShapeUtil,
   HTMLContainer,
@@ -257,31 +257,6 @@ function postToPlayer(
   )
 }
 
-const cardStyle: CSSProperties = {
-  display: 'flex',
-  width: '100%',
-  height: '100%',
-  flexDirection: 'column',
-  gap: 8,
-  overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,.16)',
-  borderRadius: 8,
-  background: '#17191f',
-  padding: 10,
-  color: '#f7f7f8',
-  boxShadow: '0 6px 18px rgba(15,23,42,.16)',
-  fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif'
-}
-
-const controlStyle: CSSProperties = {
-  border: '1px solid rgba(255,255,255,.2)',
-  borderRadius: 5,
-  background: '#282c35',
-  padding: '5px 8px',
-  color: 'inherit',
-  font: 'inherit'
-}
-
 function EmbeddedVideoShape({ shape }: { shape: CNEmbeddedVideoShape }) {
   const editor = useEditor()
   const isEditing = useIsEditing(shape.id)
@@ -367,9 +342,10 @@ function EmbeddedVideoShape({ shape }: { shape: CNEmbeddedVideoShape }) {
   return (
     <HTMLContainer
       id={shape.id}
+      className="cn-video-container"
       style={{ width: shape.props.w, height: shape.props.h, pointerEvents: 'all' }}
     >
-      <article style={cardStyle}>
+      <article className="cn-video-shape">
         {source ? (
           <iframe
             ref={frameRef}
@@ -380,7 +356,7 @@ function EmbeddedVideoShape({ shape }: { shape: CNEmbeddedVideoShape }) {
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"
             sandbox="allow-scripts allow-same-origin allow-presentation"
-            style={{ width: '100%', minHeight: 0, flex: 1, border: 0, background: '#050506' }}
+            className="cn-video-player"
             onLoad={() => {
               postToPlayer(
                 frameRef.current,
@@ -393,11 +369,9 @@ function EmbeddedVideoShape({ shape }: { shape: CNEmbeddedVideoShape }) {
             onPointerDown={keepInShape}
           />
         ) : (
-          <div
-            role="alert"
-            style={{ display: 'grid', minHeight: 0, flex: 1, placeItems: 'center' }}
-          >
-            This video URL is not an approved {shape.props.provider} link.
+          <div className="cn-video-status is-danger" role="alert">
+            <strong>Video link is not allowed</strong>
+            <span>This is not an approved {shape.props.provider} link.</span>
           </div>
         )}
 
@@ -407,21 +381,21 @@ function EmbeddedVideoShape({ shape }: { shape: CNEmbeddedVideoShape }) {
             defaultValue={shape.props.caption}
             maxLength={2_000}
             placeholder="Add a caption"
-            style={{ ...controlStyle, width: '100%' }}
+            className="cn-video-control cn-video-caption-input"
             onChange={(event) => update({ caption: event.currentTarget.value })}
             onPointerDown={keepInShape}
             onDoubleClick={keepInShape}
             onKeyDown={keepInShape}
           />
         ) : (
-          <div style={{ overflow: 'hidden', fontSize: 13, textOverflow: 'ellipsis' }}>
+          <div className="cn-video-caption">
             {shape.props.caption || `${shape.props.provider} video`}
           </div>
         )}
 
         <button
           type="button"
-          style={controlStyle}
+          className="cn-video-control"
           disabled={!source}
           onPointerDown={keepInShape}
           onClick={(event) => {

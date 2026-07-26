@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
 import {
   BaseBoxShapeUtil,
   HTMLContainer,
@@ -141,30 +141,7 @@ export class CNLocalVideoShapeUtil extends BaseBoxShapeUtil<CNLocalVideoShape> {
   }
 }
 
-const cardStyle: CSSProperties = {
-  display: 'flex',
-  width: '100%',
-  height: '100%',
-  flexDirection: 'column',
-  gap: 8,
-  overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,.16)',
-  borderRadius: 8,
-  background: '#17191f',
-  padding: 10,
-  color: '#f7f7f8',
-  boxShadow: '0 6px 18px rgba(15,23,42,.16)',
-  fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif'
-}
-
-const controlStyle: CSSProperties = {
-  border: '1px solid rgba(255,255,255,.2)',
-  borderRadius: 5,
-  background: '#282c35',
-  padding: '5px 8px',
-  color: 'inherit',
-  font: 'inherit'
-}
+type LocalVideoStatus = 'checking' | 'ready' | 'missing' | 'playback-error'
 
 function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
   const editor = useEditor()
@@ -175,7 +152,16 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
   const poster = shape.props.posterPath
     ? (toMediaUrl(shape.props.posterPath) ?? undefined)
     : undefined
-  const [missing, setMissing] = useState(!source)
+  const availabilityKey = `${shape.props.mediaPath}\0${source ?? ''}`
+  const [availability, setAvailability] = useState<{
+    key: string
+    status: LocalVideoStatus
+  }>({ key: availabilityKey, status: source ? 'checking' : 'missing' })
+  const [locating, setLocating] = useState(false)
+  const [locateFailureKey, setLocateFailureKey] = useState<string | null>(null)
+  const status =
+    availability.key === availabilityKey ? availability.status : source ? 'checking' : 'missing'
+  const locateFailed = locateFailureKey === availabilityKey
 
   useEffect(() => {
     if (!source) return
@@ -183,15 +169,17 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
     void getCanvasNoteMedia()
       .exists(shape.props.mediaPath)
       .then((exists) => {
-        if (active) setMissing(!exists)
+        if (active) {
+          setAvailability({ key: availabilityKey, status: exists ? 'ready' : 'missing' })
+        }
       })
       .catch(() => {
-        if (active) setMissing(true)
+        if (active) setAvailability({ key: availabilityKey, status: 'missing' })
       })
     return () => {
       active = false
     }
-  }, [shape.props.mediaPath, source])
+  }, [availabilityKey, shape.props.mediaPath, source])
 
   useEffect(() => {
     return registerVideoController(videoNodeId, {
@@ -228,13 +216,39 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
     })
   }
 
+  const locate = async (event: SyntheticEvent): Promise<void> => {
+    keepInShape(event)
+    setLocating(true)
+    setLocateFailureKey(null)
+    try {
+      await getCanvasNoteMedia().reveal(shape.props.mediaPath)
+    } catch {
+      setLocateFailureKey(availabilityKey)
+    } finally {
+      setLocating(false)
+    }
+  }
+
+  const handlePlaybackError = (): void => {
+    void getCanvasNoteMedia()
+      .exists(shape.props.mediaPath)
+      .then((exists) =>
+        setAvailability({
+          key: availabilityKey,
+          status: exists ? 'playback-error' : 'missing'
+        })
+      )
+      .catch(() => setAvailability({ key: availabilityKey, status: 'playback-error' }))
+  }
+
   return (
     <HTMLContainer
       id={shape.id}
+      className="cn-video-container"
       style={{ width: shape.props.w, height: shape.props.h, pointerEvents: 'all' }}
     >
-      <article style={cardStyle}>
-        {source && !missing ? (
+      <article className="cn-video-shape">
+        {source && status === 'ready' ? (
           <video
             ref={videoRef}
             aria-label={shape.props.caption || 'Local video'}
@@ -243,13 +257,13 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
             preload="metadata"
             src={source}
             poster={poster}
-            style={{ width: '100%', minHeight: 0, flex: 1, background: '#050506' }}
+            className="cn-video-player"
             onPointerDown={keepInShape}
             onClick={keepInShape}
             onDoubleClick={keepInShape}
             onKeyDown={keepInShape}
             onLoadedMetadata={(event) => {
-              setMissing(false)
+              setAvailability({ key: availabilityKey, status: 'ready' })
               event.currentTarget.playbackRate = shape.props.playbackRate
               const durationSeconds = event.currentTarget.duration
               if (
@@ -259,14 +273,41 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
                 update({ durationSeconds })
               }
             }}
-            onError={() => setMissing(true)}
+            onError={handlePlaybackError}
           />
         ) : (
           <div
-            role="status"
-            style={{ display: 'grid', minHeight: 0, flex: 1, placeItems: 'center' }}
+            className={`cn-video-status${status === 'playback-error' ? ' is-danger' : ''}`}
+            role={status === 'playback-error' || locateFailed ? 'alert' : 'status'}
           >
-            Video is unavailable
+            <strong>
+              {status === 'checking'
+                ? 'Checking video file...'
+                : status === 'missing'
+                  ? 'Video file is missing'
+                  : 'Video cannot be played'}
+            </strong>
+            {status !== 'checking' && (
+              <span>
+                {status === 'missing'
+                  ? 'Select this video, then use Replace video file in Properties.'
+                  : 'The file exists, but its format or codec may not be supported.'}
+              </span>
+            )}
+            {locateFailed && <span>CanvasNote could not open the file location.</span>}
+            {status === 'playback-error' && (
+              <button
+                type="button"
+                className="cn-video-control"
+                aria-label="Locate video file"
+                disabled={locating}
+                onPointerDown={keepInShape}
+                onClick={(event) => void locate(event)}
+                onKeyDown={keepInShape}
+              >
+                {locating ? 'Locating...' : 'Locate file'}
+              </button>
+            )}
           </div>
         )}
 
@@ -276,22 +317,21 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
             defaultValue={shape.props.caption}
             maxLength={2_000}
             placeholder="Add a caption"
-            style={{ ...controlStyle, width: '100%' }}
+            className="cn-video-control cn-video-caption-input"
             onChange={(event) => update({ caption: event.currentTarget.value })}
             onPointerDown={keepInShape}
             onDoubleClick={keepInShape}
             onKeyDown={keepInShape}
           />
         ) : (
-          <div style={{ overflow: 'hidden', fontSize: 13, textOverflow: 'ellipsis' }}>
-            {shape.props.caption || 'Local video'}
-          </div>
+          <div className="cn-video-caption">{shape.props.caption || 'Local video'}</div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <div className="cn-video-footer">
           <button
             type="button"
-            style={{ ...controlStyle, flex: 1 }}
+            className="cn-video-control cn-video-note-button"
+            disabled={status !== 'ready'}
             onPointerDown={keepInShape}
             onClick={(event) => {
               keepInShape(event)
@@ -302,14 +342,12 @@ function LocalVideoShape({ shape }: { shape: CNLocalVideoShape }) {
           >
             Add note at current time
           </button>
-          <label style={{ fontSize: 12 }}>
-            <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
-              Playback speed
-            </span>
+          <label className="cn-video-speed-label">
+            <span className="cn-shape-sr-only">Playback speed</span>
             <select
               aria-label="Playback speed"
               value={shape.props.playbackRate}
-              style={controlStyle}
+              className="cn-video-control"
               onChange={(event) => update({ playbackRate: Number(event.currentTarget.value) })}
               onPointerDown={keepInShape}
               onClick={keepInShape}
