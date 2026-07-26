@@ -84,7 +84,7 @@ test.afterAll(async () => {
 })
 
 test('launches the isolated welcome screen', async () => {
-  await expect(page.getByRole('heading', { name: /ideas make more sense/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Start in CanvasNote' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create workspace' })).toBeEnabled()
   await expect(page.getByText(/CanvasNote 0\.1\.0/)).toBeVisible()
 
@@ -366,14 +366,16 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await page.getByRole('button', { name: 'Back to boards' }).click()
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Add Edited video research to favourites/ }).click()
-  await page.getByRole('button', { name: /Move Edited video research to trash/ }).click()
+  await page.getByRole('button', { name: 'Actions for Edited video research' }).click()
+  await page.getByRole('menuitem', { name: 'Add to favourites' }).click()
+  await page.getByRole('button', { name: 'Actions for Edited video research' }).click()
+  await page.getByRole('menuitem', { name: 'Move to Trash' }).click()
   await page.getByRole('button', { name: /^Trash/ }).click()
-  await expect(page.getByRole('button', { name: 'Restore Edited video research' })).toBeVisible()
-  await page.getByRole('button', { name: 'Restore Edited video research' }).click()
+  await page.getByRole('button', { name: 'Actions for Edited video research' }).click()
+  await page.getByRole('menuitem', { name: 'Restore' }).click()
 
   await page.getByRole('button', { name: 'Close workspace' }).click()
-  await expect(page.getByRole('heading', { name: /ideas make more sense/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Start in CanvasNote' })).toBeVisible()
   await page.getByRole('button', { name: /E2E Workspace/ }).click()
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
 
@@ -471,6 +473,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
 test('flushes a pending edit on close and restores it after restart', async () => {
   await page.getByRole('button', { name: 'Open settings' }).click()
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await page.getByRole('button', { name: 'Canvas & autosave' }).click()
   await page.getByLabel('Autosave interval').selectOption('3000')
   await page.getByRole('button', { name: 'Close settings' }).click()
 

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { LoaderCircle } from 'lucide-react'
 
 import { BoardEditor } from './canvas/BoardEditor'
 import { Dashboard } from './components/Dashboard'
+import { BrandMark } from './components/BrandMark'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { SettingsPanel } from './components/SettingsPanel'
+import { Button, Feedback } from './components/ui'
 import { useAppStore, type BoardSection } from './stores/appStore'
 import { DEFAULT_APP_SETTINGS } from '../shared/schemas/settings'
 
@@ -13,21 +16,43 @@ function initialDarkMode(): boolean {
 
 function ErrorToast({
   message,
-  onDismiss
+  onDismiss,
+  onRetry
 }: {
   message: string
   onDismiss: () => void
+  onRetry?: () => void
 }): React.JSX.Element {
   return (
-    <div
-      role="alert"
-      className="fixed bottom-5 right-5 z-[1000] flex max-w-md items-start gap-4 rounded-xl border border-danger/25 bg-surface px-4 py-3 text-sm text-danger shadow-panel"
-    >
-      <span>{message}</span>
-      <button type="button" className="font-semibold" onClick={onDismiss}>
-        Dismiss
-      </button>
+    <div className="fixed bottom-4 right-4 z-[1200] w-[min(26rem,calc(100vw-2rem))]">
+      <Feedback
+        tone="danger"
+        title="CanvasNote could not complete that action"
+        message={message}
+        actions={
+          onRetry ? (
+            <Button size="small" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : undefined
+        }
+        onDismiss={onDismiss}
+      />
     </div>
+  )
+}
+
+function StartupScreen(): React.JSX.Element {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background text-ink" aria-busy="true">
+      <div className="flex flex-col items-center gap-4">
+        <BrandMark />
+        <p className="flex items-center gap-2 text-sm text-muted" role="status">
+          <LoaderCircle className="animate-spin" size={16} aria-hidden="true" />
+          Opening CanvasNote…
+        </p>
+      </div>
+    </main>
   )
 }
 
@@ -86,12 +111,16 @@ export default function App(): React.JSX.Element {
       <SettingsPanel
         snapshot={store.settingsSnapshot}
         recentWorkspaces={store.recentWorkspaces}
+        version={store.appInfo?.version}
+        platform={store.appInfo?.platform}
         onChange={store.updateSettings}
         onOpenDataLocation={store.openDataLocation}
         onOpenBackups={store.openBackups}
         onClose={() => setSettingsOpen(false)}
       />
     ) : null
+
+  if (!store.initialized) return <StartupScreen />
 
   if (store.currentBoard) {
     return (
@@ -106,7 +135,9 @@ export default function App(): React.JSX.Element {
           onRegisterClosePreparation={registerClosePreparation}
         />
         {settingsPanel}
-        {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
+        {store.error && !settingsOpen && (
+          <ErrorToast message={store.error} onDismiss={store.clearError} />
+        )}
       </>
     )
   }
@@ -125,6 +156,7 @@ export default function App(): React.JSX.Element {
             store.workspaceStats ? { usedBytes: store.workspaceStats.storageBytes } : undefined
           }
           creating={store.operation === 'creating-board'}
+          loading={store.operation === 'loading-boards'}
           onSectionChange={(section: BoardSection) => store.setBoardSection(section)}
           onViewChange={store.setBoardView}
           onQueryChange={store.setBoardQuery}
@@ -143,7 +175,9 @@ export default function App(): React.JSX.Element {
           onOpenSettings={() => setSettingsOpen(true)}
         />
         {settingsPanel}
-        {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
+        {store.error && !settingsOpen && (
+          <ErrorToast message={store.error} onDismiss={store.clearError} />
+        )}
       </>
     )
   }
@@ -152,12 +186,19 @@ export default function App(): React.JSX.Element {
     <>
       <WelcomeScreen
         dark={dark}
+        settingsAvailable={Boolean(store.settingsSnapshot)}
         onToggleTheme={toggleTheme}
         onOpenSettings={() => setSettingsOpen(true)}
         onImportBoard={() => void store.importBoard().catch(() => undefined)}
       />
       {settingsPanel}
-      {store.error && <ErrorToast message={store.error} onDismiss={store.clearError} />}
+      {store.error && !settingsOpen && (
+        <ErrorToast
+          message={store.error}
+          onDismiss={store.clearError}
+          onRetry={store.settingsSnapshot ? undefined : () => void initialize()}
+        />
+      )}
     </>
   )
 }

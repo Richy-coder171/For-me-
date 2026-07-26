@@ -111,6 +111,7 @@ describe('Dashboard', () => {
       'aria-pressed',
       'false'
     )
+    expect(screen.getByRole('group', { name: 'Board view' })).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'Workspace storage used' })).toHaveAttribute(
       'aria-valuenow',
       '25'
@@ -167,23 +168,95 @@ describe('Dashboard', () => {
     const onTrashBoard = vi.fn()
     render(<Dashboard {...dashboardProps({ onToggleFavorite, onTrashBoard })} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Research map to favourites' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Product roadmap from favourites' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Move Research map to trash' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Research map' }))
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Actions for Research map' })).getByRole('menuitem', {
+        name: 'Add to favourites'
+      })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Product roadmap' }))
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Actions for Product roadmap' })).getByRole(
+        'menuitem',
+        { name: 'Remove from favourites' }
+      )
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Research map' }))
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Actions for Research map' })).getByRole('menuitem', {
+        name: 'Move to Trash'
+      })
+    )
 
     expect(onToggleFavorite).toHaveBeenNthCalledWith(1, 'board-research', true)
     expect(onToggleFavorite).toHaveBeenNthCalledWith(2, 'board-roadmap', false)
     expect(onTrashBoard).toHaveBeenCalledWith('board-research')
   })
 
-  it('reports restore actions from trash', () => {
+  it('reports restore and confirmed permanent-delete actions from trash', () => {
     const onRestoreBoard = vi.fn()
-    render(<Dashboard {...dashboardProps({ section: 'trash', onRestoreBoard })} />)
+    const onDeleteBoard = vi.fn()
+    render(<Dashboard {...dashboardProps({ section: 'trash', onRestoreBoard, onDeleteBoard })} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Restore Archived notes' }))
+    const trigger = screen.getByRole('button', { name: 'Actions for Archived notes' })
+    fireEvent.click(trigger)
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Actions for Archived notes' })).getByRole(
+        'menuitem',
+        { name: 'Restore' }
+      )
+    )
 
     expect(onRestoreBoard).toHaveBeenCalledWith('board-archive')
-    expect(screen.getByRole('button', { name: 'Delete Archived notes permanently' })).toBeEnabled()
+
+    fireEvent.click(trigger)
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Actions for Archived notes' })).getByRole(
+        'menuitem',
+        { name: 'Delete permanently' }
+      )
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Delete board permanently?' })
+    expect(within(dialog).getByText(/Archived notes/)).toBeVisible()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+    expect(onDeleteBoard).toHaveBeenCalledWith('board-archive')
+  })
+
+  it('supports keyboard navigation and dismissal in board action menus', () => {
+    render(<Dashboard {...dashboardProps()} />)
+
+    const trigger = screen.getByRole('button', { name: 'Actions for Research map' })
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('menu', { name: 'Actions for Research map' })
+    const addFavourite = within(menu).getByRole('menuitem', { name: 'Add to favourites' })
+    const moveToTrash = within(menu).getByRole('menuitem', { name: 'Move to Trash' })
+
+    expect(addFavourite).toHaveFocus()
+    fireEvent.keyDown(menu, { key: 'End' })
+    expect(moveToTrash).toHaveFocus()
+    fireEvent.keyDown(menu, { key: 'Home' })
+    expect(addFavourite).toHaveFocus()
+    fireEvent.keyDown(menu, { key: 'ArrowDown' })
+    expect(moveToTrash).toHaveFocus()
+    fireEvent.keyDown(menu, { key: 'ArrowUp' })
+    expect(addFavourite).toHaveFocus()
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Actions for Research map' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+
+    fireEvent.click(trigger)
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu', { name: 'Actions for Research map' })).not.toBeInTheDocument()
+  })
+
+  it('shows an accessible loading skeleton instead of stale board actions', () => {
+    render(<Dashboard {...dashboardProps({ loading: true })} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading boards…')
+    const region = screen.getByRole('region', { name: 'Board list' })
+    expect(region).toHaveAttribute('aria-busy', 'true')
+    expect(region.querySelectorAll('.animate-pulse')).toHaveLength(6)
+    expect(screen.queryByRole('button', { name: 'Open Research map' })).not.toBeInTheDocument()
   })
 
   it('creates boards from each editable template', () => {

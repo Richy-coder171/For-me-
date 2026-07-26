@@ -12,6 +12,7 @@ interface DialogProps {
   footer?: ReactNode
   wide?: boolean
   dismissOnBackdrop?: boolean
+  closeLabel?: string
   initialFocusRef?: RefObject<HTMLElement | null>
   onClose: () => void
 }
@@ -38,6 +39,7 @@ export function Dialog({
   footer,
   wide = false,
   dismissOnBackdrop = true,
+  closeLabel,
   initialFocusRef,
   onClose
 }: DialogProps): React.JSX.Element {
@@ -107,7 +109,11 @@ export function Dialog({
                 </p>
               )}
             </div>
-            <IconButton aria-label={`Close ${title}`} icon={<X size={17} />} onClick={onClose} />
+            <IconButton
+              aria-label={closeLabel ?? `Close ${title}`}
+              icon={<X size={17} />}
+              onClick={onClose}
+            />
           </header>
           <div className="cn-dialog-body">{children}</div>
           {footer && <footer className="cn-dialog-footer">{footer}</footer>}
