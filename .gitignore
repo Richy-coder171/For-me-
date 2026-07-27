@@ -4,6 +4,7 @@ release/
 coverage/
 test-results/
 playwright-report/
+.canvasnote-design-*/
 *.log
 *.tmp
 .env

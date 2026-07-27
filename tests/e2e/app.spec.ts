@@ -388,18 +388,27 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   expect(noteBox).toBeTruthy()
   expect(videoBox).toBeTruthy()
   await page.getByRole('button', { name: 'Draw connection' }).click()
-  await page.mouse.move(noteBox!.x + noteBox!.width - 3, noteBox!.y + noteBox!.height / 2)
+  await page.mouse.move(noteBox!.x + noteBox!.width / 2, noteBox!.y + noteBox!.height / 2)
   await page.mouse.down()
-  await page.mouse.move(videoBox!.x + 3, videoBox!.y + videoBox!.height / 2, {
+  // tldraw needs 320 ms at each endpoint before it commits precise arrow bindings.
+  await page.waitForTimeout(400)
+  await page.mouse.move(videoBox!.x + videoBox!.width / 2, videoBox!.y + videoBox!.height / 2, {
     steps: 8
   })
+  await page.waitForTimeout(400)
   await page.mouse.up()
   await expect(page.locator('[data-shape-type="arrow"]')).toHaveCount(1)
 
   const title = page.getByLabel('Board title')
   await title.fill('Edited video research')
   await expect(page.getByText('Unsaved changes')).toBeVisible()
-  await expect(page.getByText('Saved locally')).toBeVisible()
+  await expect(page.getByText('Saved locally'))
+    .toBeVisible()
+    .catch(async (error: Error) => {
+      const failureDetails = page.locator('.canvas-save-details code')
+      const details = (await failureDetails.count()) ? await failureDetails.textContent() : null
+      throw new Error(`${error.message}\n${details ?? 'No save failure details were shown.'}`)
+    })
   await page.getByRole('button', { name: 'Save board' }).click()
   await page.getByRole('button', { name: 'Back to boards' }).click()
   await expect(page.getByRole('button', { name: 'Open Edited video research' })).toBeVisible()
