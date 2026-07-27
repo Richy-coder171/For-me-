@@ -61,6 +61,7 @@ import type { SettingsSection } from '../components/SettingsPanel'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
 import { searchBoard, type BoardSearchResult, type BoardSearchType } from './boardSearch'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
+import { describeSaveFailure, type SaveFailure } from './saveFailure'
 import {
   CN_CHECKLIST_TYPE,
   CN_EMBEDDED_VIDEO_TYPE,
@@ -79,6 +80,7 @@ import {
   createCNLinkShape,
   createCNTimestampNoteShape,
   createNoteShape,
+  formatTimestamp,
   getNextShapePosition,
   isCNChecklistShape,
   isCNEmbeddedVideoShape,
@@ -91,6 +93,7 @@ import {
   onVideoShapeEvent,
   parseEmbeddedVideoUrl,
   requestTimestampNote,
+  requestVideoSeek,
   type CNChecklistShape,
   type CNEmbeddedVideoShape,
   type CNFileShape,
@@ -124,6 +127,7 @@ interface BoardEditorProps {
   stored: OpenBoard
   onBack: () => Promise<void>
   onSave: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
+  onClearError: () => void
   settings: AppSettings
   onOpenSettings: (section?: SettingsSection) => void
   onOpenTemplates: () => Promise<void>
@@ -190,6 +194,13 @@ function canvasNoteId(shape: TLShape): string {
   return typeof persistedId === 'string' && shape.id === `shape:${persistedId}`
     ? persistedId
     : shape.id.replace(/^shape:/, '')
+}
+
+function boxDimensions(shape: TLShape): { w: number; h: number } | null {
+  const props = shape.props as { w?: unknown; h?: unknown }
+  return typeof props.w === 'number' && typeof props.h === 'number'
+    ? { w: props.w, h: props.h }
+    : null
 }
 
 function parseTags(value: string): string[] {
@@ -891,6 +902,7 @@ export function BoardEditor({
   stored,
   onBack,
   onSave,
+  onClearError,
   settings,
   onOpenSettings,
   onOpenTemplates,
@@ -901,6 +913,10 @@ export function BoardEditor({
   const [editor, setEditor] = useState<Editor | null>(null)
   const [title, setTitle] = useState(stored.board.title)
   const [saveState, setSaveState] = useState<SaveState>('saved')
+  const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null)
+  const [recoveryExporting, setRecoveryExporting] = useState(false)
+  const [reloadDialogOpen, setReloadDialogOpen] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [selectedShape, setSelectedShape] = useState<TLShape | null>(null)
   const [selectedShapeIds, setSelectedShapeIds] = useState<TLShapeId[]>([])
   const [activeTool, setActiveTool] = useState('select')
@@ -938,13 +954,11 @@ export function BoardEditor({
   const revisionRef = useRef(stored.revision)
   const propertiesPreferenceRef = useRef(true)
 
-  const saveCurrentBoard = useCallback(async (): Promise<void> => {
+  const serializeCurrentBoard = useCallback(() => {
     const currentEditor = editorRef.current
-    if (!currentEditor) return
-
-    setSaveState('saving')
+    if (!currentEditor) return null
     const camera = currentEditor.getCamera()
-    const result = tldrawToBoard(
+    return tldrawToBoard(
       {
         ...boardRef.current,
         title: titleRef.current.trim() || boardRef.current.title
@@ -952,11 +966,26 @@ export function BoardEditor({
       currentEditor.store.allRecords(),
       { x: camera.x, y: camera.y, zoom: camera.z }
     )
+  }, [])
+
+  const saveCurrentBoard = useCallback(async (): Promise<void> => {
+    let result = serializeCurrentBoard()
+    if (!result) return
+
+    setSaveState('saving')
+    if (result.diagnostics.length > 0) {
+      // tldraw can publish an arrow just before its terminal bindings; read once after it settles.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      result = serializeCurrentBoard() ?? result
+    }
 
     if (result.diagnostics.length > 0) {
+      const error = new Error(
+        `Save blocked: ${result.diagnostics[0]?.message ?? 'unsupported canvas object.'}`
+      )
       setSaveState('error')
-      setNotice(`Save blocked: ${result.diagnostics[0]?.message ?? 'unsupported canvas object.'}`)
-      throw new Error('CanvasNote refused a lossy board save.')
+      setSaveFailure(describeSaveFailure(error))
+      throw error
     }
 
     try {
@@ -967,11 +996,14 @@ export function BoardEditor({
       titleRef.current = saved.board.title
       setTitle(saved.board.title)
       setSaveState('saved')
+      setSaveFailure(null)
+      onClearError()
     } catch (error) {
       setSaveState('error')
+      setSaveFailure(describeSaveFailure(error))
       throw error
     }
-  }, [onSave])
+  }, [onClearError, onSave, serializeCurrentBoard])
 
   const [saveQueue] = useState<AutosaveQueue>(() =>
     createAutosaveQueue(async () => undefined, settings.autosaveDelayMs)
@@ -991,7 +1023,7 @@ export function BoardEditor({
   )
 
   const markDirty = useCallback(() => {
-    setSaveState((current) => (current === 'saving' ? current : 'dirty'))
+    setSaveState((current) => (current === 'saving' || current === 'error' ? current : 'dirty'))
     saveQueue.schedule()
   }, [saveQueue])
 
@@ -1514,6 +1546,56 @@ export function BoardEditor({
     selectedShape && isCNEmbeddedVideoShape(selectedShape) ? selectedShape : null
   const timestampShape =
     selectedShape && isCNTimestampNoteShape(selectedShape) ? selectedShape : null
+  const selectedVideoShape = localVideoShape ?? embeddedVideoShape
+  const selectedVideoNodeId = selectedVideoShape ? canvasNoteId(selectedVideoShape) : null
+  const videoTimestampNotes = useValue(
+    'Selected video timestamp notes',
+    () =>
+      editor && selectedVideoNodeId
+        ? editor
+            .getCurrentPageShapes()
+            .filter(
+              (shape): shape is CNTimestampNoteShape =>
+                isCNTimestampNoteShape(shape) && shape.props.videoNodeId === selectedVideoNodeId
+            )
+            .sort(
+              (left, right) =>
+                left.props.timestampSeconds - right.props.timestampSeconds ||
+                left.id.localeCompare(right.id)
+            )
+        : [],
+    [editor, selectedVideoNodeId]
+  )
+  const selectedBounds = editor && selectedShape ? editor.getShapePageBounds(selectedShape) : null
+  const selectedDimensions = selectedShape ? boxDimensions(selectedShape) : null
+
+  const updateSelectedPosition = (axis: 'x' | 'y', value: number): void => {
+    if (!editor || !selectedShape || !selectedBounds || selectedShape.isLocked) return
+    if (!Number.isFinite(value)) return
+    editor.nudgeShapes([selectedShape.id], {
+      x: axis === 'x' ? value - selectedBounds.x : 0,
+      y: axis === 'y' ? value - selectedBounds.y : 0
+    })
+  }
+
+  const updateSelectedSize = (axis: 'w' | 'h', value: number): void => {
+    if (!editor || !selectedShape || !selectedDimensions || selectedShape.isLocked) return
+    if (!Number.isFinite(value) || value <= 0) return
+    const transform = editor.getShapePageTransform(selectedShape)
+    if (!transform) return
+    editor.resizeShape(
+      selectedShape,
+      {
+        x: axis === 'w' ? value / selectedDimensions.w : 1,
+        y: axis === 'h' ? value / selectedDimensions.h : 1
+      },
+      {
+        scaleOrigin: transform.point(),
+        scaleAxisRotation: transform.rotation(),
+        dragHandle: 'bottom_right'
+      }
+    )
+  }
 
   const updateImageShape = useCallback(
     (
@@ -1682,6 +1764,72 @@ export function BoardEditor({
 
   const saveNow = (): void => {
     void saveQueue.flush().catch(() => undefined)
+  }
+
+  const exportRecoveryCopy = async (): Promise<void> => {
+    if (recoveryExporting) return
+    const result = serializeCurrentBoard()
+    if (!result || result.diagnostics.length > 0) {
+      setNotice(
+        'CanvasNote cannot create a complete recovery copy while unsupported objects remain.'
+      )
+      return
+    }
+
+    setRecoveryExporting(true)
+    try {
+      const saved = await window.canvasNote.export.json(result.board)
+      if (saved) setNotice('Recovery copy exported.')
+    } catch {
+      setNotice('CanvasNote could not export the recovery copy.')
+    } finally {
+      setRecoveryExporting(false)
+    }
+  }
+
+  const reloadDiskVersion = async (): Promise<void> => {
+    if (!editor || reloading) return
+    setReloading(true)
+    try {
+      const storedBoard = await window.canvasNote.boards.open(boardRef.current.id)
+      const loaded = boardToTldraw(storedBoard.board, editor.getCurrentPageId())
+      saveQueue.cancel()
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.remove(
+          editor.store
+            .allRecords()
+            .filter(({ typeName }) => typeName === 'shape' || typeName === 'binding')
+            .map(({ id }) => id)
+        )
+        editor.store.put(loaded.records)
+      })
+      editor.setCamera(
+        { x: loaded.camera.x, y: loaded.camera.y, z: loaded.camera.zoom },
+        { immediate: true }
+      )
+      editor.clearHistory()
+      boardRef.current = storedBoard.board
+      revisionRef.current = storedBoard.revision
+      titleRef.current = storedBoard.board.title
+      setTitle(storedBoard.board.title)
+      setRevision(storedBoard.revision)
+      setSearchBoardSnapshot(storedBoard.board)
+      setSelectedShape(null)
+      setSelectedShapeIds([])
+      setSaveState('saved')
+      setSaveFailure(null)
+      setReloadDialogOpen(false)
+      setNotice(
+        loaded.diagnostics.length
+          ? `${loaded.diagnostics.length} board object(s) could not be shown after reloading.`
+          : 'Reloaded the version saved on disk.'
+      )
+      onClearError()
+    } catch {
+      setNotice('CanvasNote could not reload the board from disk.')
+    } finally {
+      setReloading(false)
+    }
   }
 
   const exportJson = async (): Promise<void> => {
@@ -1888,6 +2036,41 @@ export function BoardEditor({
         </button>
       </header>
 
+      {saveFailure && (
+        <div className="canvas-save-failure">
+          <Feedback
+            tone={saveFailure.kind === 'conflict' ? 'warning' : 'danger'}
+            title={saveFailure.title}
+            message={saveFailure.message}
+            actions={
+              <>
+                <Button size="small" variant="primary" onClick={saveNow}>
+                  Retry
+                </Button>
+                {saveFailure.kind !== 'validation' && (
+                  <Button
+                    size="small"
+                    loading={recoveryExporting}
+                    onClick={() => void exportRecoveryCopy()}
+                  >
+                    Export recovery copy
+                  </Button>
+                )}
+                {saveFailure.kind === 'conflict' && (
+                  <Button size="small" variant="quiet" onClick={() => setReloadDialogOpen(true)}>
+                    Reload disk version
+                  </Button>
+                )}
+                <details className="canvas-save-details">
+                  <summary>Technical details</summary>
+                  <code>{saveFailure.details}</code>
+                </details>
+              </>
+            }
+          />
+        </div>
+      )}
+
       <section className="relative flex min-h-0 flex-1">
         <div
           className="relative min-w-0 flex-1 overflow-hidden"
@@ -2091,365 +2274,523 @@ export function BoardEditor({
               </div>
             ) : (
               <div className="canvas-properties-body">
-                {textShape && (
-                  <>
-                    <fieldset className="canvas-property-group">
-                      <legend>Background</legend>
-                      <div className="flex flex-wrap gap-2">
-                        {BACKGROUNDS.map((background) => (
+                <details className="canvas-property-section" open>
+                  <summary>General</summary>
+                  <div className="canvas-property-section-body">
+                    {selectedBounds && (
+                      <div className="canvas-transform-grid">
+                        <label>
+                          <span>X position</span>
+                          <input
+                            type="number"
+                            step={1}
+                            value={Number(selectedBounds.x.toFixed(1))}
+                            disabled={selectedShape.isLocked}
+                            onChange={(event) =>
+                              updateSelectedPosition('x', event.target.valueAsNumber)
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Y position</span>
+                          <input
+                            type="number"
+                            step={1}
+                            value={Number(selectedBounds.y.toFixed(1))}
+                            disabled={selectedShape.isLocked}
+                            onChange={(event) =>
+                              updateSelectedPosition('y', event.target.valueAsNumber)
+                            }
+                          />
+                        </label>
+                        {selectedDimensions && (
+                          <>
+                            <label>
+                              <span>Width</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={Number(selectedDimensions.w.toFixed(1))}
+                                disabled={selectedShape.isLocked}
+                                onChange={(event) =>
+                                  updateSelectedSize('w', event.target.valueAsNumber)
+                                }
+                              />
+                            </label>
+                            <label>
+                              <span>Height</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={Number(selectedDimensions.h.toFixed(1))}
+                                disabled={selectedShape.isLocked}
+                                onChange={(event) =>
+                                  updateSelectedSize('h', event.target.valueAsNumber)
+                                }
+                              />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </details>
+
+                {(textShape ||
+                  imageShape ||
+                  fileShape ||
+                  linkShape ||
+                  localVideoShape ||
+                  embeddedVideoShape ||
+                  timestampShape) && (
+                  <details className="canvas-property-section" open>
+                    <summary>
+                      {textShape
+                        ? 'Appearance'
+                        : timestampShape
+                          ? 'Timestamp'
+                          : localVideoShape || embeddedVideoShape
+                            ? 'Media and timestamps'
+                            : 'Content and media'}
+                    </summary>
+                    <div className="canvas-property-section-body">
+                      {textShape && (
+                        <>
+                          <fieldset className="canvas-property-group">
+                            <legend>Background</legend>
+                            <div className="flex flex-wrap gap-2">
+                              {BACKGROUNDS.map((background) => (
+                                <button
+                                  type="button"
+                                  key={background.value}
+                                  className={`canvas-color-chip ${textShape.props.background === background.value ? 'is-active' : ''}`}
+                                  style={{ background: background.color }}
+                                  title={background.label}
+                                  aria-label={`${background.label} background`}
+                                  aria-pressed={textShape.props.background === background.value}
+                                  onClick={() => updateTextShape({ background: background.value })}
+                                />
+                              ))}
+                            </div>
+                          </fieldset>
+
+                          <label className="canvas-property-group">
+                            <span>Text color</span>
+                            <input
+                              type="color"
+                              value={textShape.props.textColor}
+                              onChange={(event) =>
+                                updateTextShape({ textColor: event.target.value })
+                              }
+                            />
+                          </label>
+
+                          <label className="canvas-property-group">
+                            <span>Font size</span>
+                            <select
+                              value={textShape.props.fontSize}
+                              onChange={(event) =>
+                                updateTextShape({ fontSize: Number(event.target.value) })
+                              }
+                            >
+                              {[12, 14, 16, 18, 24, 32].map((size) => (
+                                <option key={size} value={size}>
+                                  {size}px
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <fieldset className="canvas-property-group">
+                            <legend>Alignment</legend>
+                            <div className="canvas-segmented-control">
+                              {(['left', 'center', 'right'] as const).map((alignment) => (
+                                <button
+                                  type="button"
+                                  key={alignment}
+                                  aria-pressed={textShape.props.textAlign === alignment}
+                                  className={
+                                    textShape.props.textAlign === alignment ? 'is-active' : ''
+                                  }
+                                  onClick={() => updateTextShape({ textAlign: alignment })}
+                                >
+                                  {alignment}
+                                </button>
+                              ))}
+                            </div>
+                          </fieldset>
+
+                          <TagsField
+                            id={textShape.id}
+                            tags={textShape.props.tags}
+                            placeholder="research, ideas"
+                            onChange={(tags) => updateTextShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {imageShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={imageShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateImageShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Alternative text</span>
+                            <input
+                              type="text"
+                              value={imageShape.props.altText}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateImageShape({ altText: event.target.value })
+                              }
+                            />
+                          </label>
+                          <fieldset className="canvas-property-group">
+                            <legend>Fit</legend>
+                            <div className="canvas-segmented-control">
+                              {(['contain', 'cover'] as const).map((fit) => (
+                                <button
+                                  type="button"
+                                  key={fit}
+                                  aria-pressed={imageShape.props.fit === fit}
+                                  className={imageShape.props.fit === fit ? 'is-active' : ''}
+                                  onClick={() => updateImageShape({ fit })}
+                                >
+                                  {fit}
+                                </button>
+                              ))}
+                            </div>
+                          </fieldset>
+                          <TagsField
+                            id={imageShape.id}
+                            tags={imageShape.props.tags}
+                            placeholder="reference, visual"
+                            onChange={(tags) => updateImageShape({ tags })}
+                          />
                           <button
                             type="button"
-                            key={background.value}
-                            className={`canvas-color-chip ${textShape.props.background === background.value ? 'is-active' : ''}`}
-                            style={{ background: background.color }}
-                            title={background.label}
-                            aria-label={`${background.label} background`}
-                            aria-pressed={textShape.props.background === background.value}
-                            onClick={() => updateTextShape({ background: background.value })}
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('image')}
+                          >
+                            <ImagePlus size={15} /> Replace image file
+                          </button>
+                        </>
+                      )}
+
+                      {fileShape && (
+                        <>
+                          <div className="canvas-property-group">
+                            <span>File</span>
+                            <p className="m-0 break-all text-xs text-muted">
+                              {fileShape.props.filename}
+                            </p>
+                          </div>
+                          <TagsField
+                            id={fileShape.id}
+                            tags={fileShape.props.tags}
+                            placeholder="source, attachment"
+                            onChange={(tags) => updateFileShape({ tags })}
                           />
-                        ))}
-                      </div>
-                    </fieldset>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('file')}
+                          >
+                            <Paperclip size={15} /> Replace attached file
+                          </button>
+                        </>
+                      )}
 
-                    <label className="canvas-property-group">
-                      <span>Text color</span>
-                      <input
-                        type="color"
-                        value={textShape.props.textColor}
-                        onChange={(event) => updateTextShape({ textColor: event.target.value })}
-                      />
-                    </label>
+                      {linkShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Title</span>
+                            <input
+                              type="text"
+                              value={linkShape.props.title}
+                              maxLength={500}
+                              onChange={(event) => updateLinkShape({ title: event.target.value })}
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Description</span>
+                            <textarea
+                              value={linkShape.props.description}
+                              maxLength={4_000}
+                              rows={4}
+                              onChange={(event) =>
+                                updateLinkShape({ description: event.target.value })
+                              }
+                            />
+                          </label>
+                          <div className="canvas-property-group">
+                            <span>URL</span>
+                            <p className="m-0 break-all text-xs font-normal text-muted">
+                              {linkShape.props.url}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              void window.canvasNote.app.openExternal(linkShape.props.url)
+                            }
+                          >
+                            <Globe2 size={15} /> Open link in browser
+                          </button>
+                          <TagsField
+                            id={linkShape.id}
+                            tags={linkShape.props.tags}
+                            placeholder="source, website"
+                            onChange={(tags) => updateLinkShape({ tags })}
+                          />
+                        </>
+                      )}
 
-                    <label className="canvas-property-group">
-                      <span>Font size</span>
-                      <select
-                        value={textShape.props.fontSize}
-                        onChange={(event) =>
-                          updateTextShape({ fontSize: Number(event.target.value) })
+                      {localVideoShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={localVideoShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateLocalVideoShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Playback speed</span>
+                            <select
+                              value={localVideoShape.props.playbackRate}
+                              onChange={(event) =>
+                                updateLocalVideoShape({ playbackRate: Number(event.target.value) })
+                              }
+                            >
+                              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                                <option key={rate} value={rate}>
+                                  {rate}×
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              requestTimestampNote(
+                                canvasNoteId(localVideoShape),
+                                localVideoShape.id
+                              )
+                            }
+                          >
+                            <Clock3 size={15} /> Add note at current time
+                          </button>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('video')}
+                          >
+                            <Video size={15} /> Replace video file
+                          </button>
+                          <TagsField
+                            id={localVideoShape.id}
+                            tags={localVideoShape.props.tags}
+                            placeholder="interview, source"
+                            onChange={(tags) => updateLocalVideoShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {embeddedVideoShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={embeddedVideoShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateEmbeddedVideoShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <div className="canvas-property-group">
+                            <span>Source</span>
+                            <p className="m-0 break-all text-xs font-normal text-muted">
+                              {embeddedVideoShape.props.url}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              requestTimestampNote(
+                                canvasNoteId(embeddedVideoShape),
+                                embeddedVideoShape.id
+                              )
+                            }
+                          >
+                            <Clock3 size={15} /> Add note at current time
+                          </button>
+                          <TagsField
+                            id={embeddedVideoShape.id}
+                            tags={embeddedVideoShape.props.tags}
+                            placeholder="video, reference"
+                            onChange={(tags) => updateEmbeddedVideoShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {selectedVideoShape && selectedVideoNodeId && (
+                        <div className="canvas-property-group">
+                          <span>Timestamp notes</span>
+                          {videoTimestampNotes.length > 0 ? (
+                            <div className="canvas-timestamp-list">
+                              {videoTimestampNotes.map((note) => {
+                                const time = formatTimestamp(note.props.timestampSeconds)
+                                return (
+                                  <button
+                                    type="button"
+                                    key={note.id}
+                                    aria-label={`Go to timestamp ${time}`}
+                                    onClick={() => {
+                                      editor?.select(selectedVideoShape.id).zoomToSelection({
+                                        animation: { duration: 180 }
+                                      })
+                                      requestVideoSeek(
+                                        selectedVideoNodeId,
+                                        note.props.timestampSeconds
+                                      )
+                                    }}
+                                  >
+                                    <strong>{time}</strong>
+                                    <span>
+                                      {note.props.content.trim() || 'Untitled timestamp note'}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="canvas-property-empty">
+                              No timestamp notes for this video.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {timestampShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Timestamp (seconds)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={604_800}
+                              step={0.1}
+                              value={timestampShape.props.timestampSeconds}
+                              onChange={(event) =>
+                                updateTimestampShape({
+                                  timestampSeconds: Math.min(
+                                    604_800,
+                                    Math.max(0, event.target.valueAsNumber || 0)
+                                  )
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Note</span>
+                            <textarea
+                              value={timestampShape.props.content}
+                              maxLength={100_000}
+                              rows={5}
+                              onChange={(event) =>
+                                updateTimestampShape({ content: event.target.value })
+                              }
+                            />
+                          </label>
+                          <fieldset className="canvas-property-group">
+                            <legend>Background</legend>
+                            <div className="flex flex-wrap gap-2">
+                              {BACKGROUNDS.map((background) => (
+                                <button
+                                  type="button"
+                                  key={background.value}
+                                  className={`canvas-color-chip ${timestampShape.props.background === background.value ? 'is-active' : ''}`}
+                                  style={{ background: background.color }}
+                                  aria-label={`${background.label} background`}
+                                  aria-pressed={
+                                    timestampShape.props.background === background.value
+                                  }
+                                  onClick={() =>
+                                    updateTimestampShape({ background: background.value })
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </fieldset>
+                          <TagsField
+                            id={timestampShape.id}
+                            tags={timestampShape.props.tags}
+                            placeholder="quote, insight"
+                            onChange={(tags) => updateTimestampShape({ tags })}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </details>
+                )}
+
+                <details className="canvas-property-section">
+                  <summary>Advanced</summary>
+                  <div className="canvas-property-section-body">
+                    <div className="canvas-property-actions">
+                      {selectedShape.type === 'group' && (
+                        <button
+                          type="button"
+                          onClick={() => editor?.ungroupShapes([selectedShape.id])}
+                        >
+                          <Ungroup size={15} /> Ungroup
+                        </button>
+                      )}
+                      <button type="button" onClick={() => editor?.toggleLock([selectedShape.id])}>
+                        {selectedShape.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                        {selectedShape.isLocked ? 'Unlock' : 'Lock'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          editor?.duplicateShapes([selectedShape.id], { x: 24, y: 24 })
                         }
                       >
-                        {[12, 14, 16, 18, 24, 32].map((size) => (
-                          <option key={size} value={size}>
-                            {size}px
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <fieldset className="canvas-property-group">
-                      <legend>Alignment</legend>
-                      <div className="canvas-segmented-control">
-                        {(['left', 'center', 'right'] as const).map((alignment) => (
-                          <button
-                            type="button"
-                            key={alignment}
-                            aria-pressed={textShape.props.textAlign === alignment}
-                            className={textShape.props.textAlign === alignment ? 'is-active' : ''}
-                            onClick={() => updateTextShape({ textAlign: alignment })}
-                          >
-                            {alignment}
-                          </button>
-                        ))}
-                      </div>
-                    </fieldset>
-
-                    <TagsField
-                      id={textShape.id}
-                      tags={textShape.props.tags}
-                      placeholder="research, ideas"
-                      onChange={(tags) => updateTextShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {imageShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={imageShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) => updateImageShape({ caption: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Alternative text</span>
-                      <input
-                        type="text"
-                        value={imageShape.props.altText}
-                        maxLength={2_000}
-                        onChange={(event) => updateImageShape({ altText: event.target.value })}
-                      />
-                    </label>
-                    <fieldset className="canvas-property-group">
-                      <legend>Fit</legend>
-                      <div className="canvas-segmented-control">
-                        {(['contain', 'cover'] as const).map((fit) => (
-                          <button
-                            type="button"
-                            key={fit}
-                            aria-pressed={imageShape.props.fit === fit}
-                            className={imageShape.props.fit === fit ? 'is-active' : ''}
-                            onClick={() => updateImageShape({ fit })}
-                          >
-                            {fit}
-                          </button>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <TagsField
-                      id={imageShape.id}
-                      tags={imageShape.props.tags}
-                      placeholder="reference, visual"
-                      onChange={(tags) => updateImageShape({ tags })}
-                    />
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('image')}
-                    >
-                      <ImagePlus size={15} /> Replace image file
-                    </button>
-                  </>
-                )}
-
-                {fileShape && (
-                  <>
-                    <div className="canvas-property-group">
-                      <span>File</span>
-                      <p className="m-0 break-all text-xs text-muted">{fileShape.props.filename}</p>
-                    </div>
-                    <TagsField
-                      id={fileShape.id}
-                      tags={fileShape.props.tags}
-                      placeholder="source, attachment"
-                      onChange={(tags) => updateFileShape({ tags })}
-                    />
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('file')}
-                    >
-                      <Paperclip size={15} /> Replace attached file
-                    </button>
-                  </>
-                )}
-
-                {linkShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Title</span>
-                      <input
-                        type="text"
-                        value={linkShape.props.title}
-                        maxLength={500}
-                        onChange={(event) => updateLinkShape({ title: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Description</span>
-                      <textarea
-                        value={linkShape.props.description}
-                        maxLength={4_000}
-                        rows={4}
-                        onChange={(event) => updateLinkShape({ description: event.target.value })}
-                      />
-                    </label>
-                    <div className="canvas-property-group">
-                      <span>URL</span>
-                      <p className="m-0 break-all text-xs font-normal text-muted">
-                        {linkShape.props.url}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() => void window.canvasNote.app.openExternal(linkShape.props.url)}
-                    >
-                      <Globe2 size={15} /> Open link in browser
-                    </button>
-                    <TagsField
-                      id={linkShape.id}
-                      tags={linkShape.props.tags}
-                      placeholder="source, website"
-                      onChange={(tags) => updateLinkShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {localVideoShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={localVideoShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) => updateLocalVideoShape({ caption: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Playback speed</span>
-                      <select
-                        value={localVideoShape.props.playbackRate}
-                        onChange={(event) =>
-                          updateLocalVideoShape({ playbackRate: Number(event.target.value) })
-                        }
+                        <Copy size={15} /> Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="is-danger"
+                        onClick={() => editor?.deleteShapes([selectedShape.id])}
                       >
-                        {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                          <option key={rate} value={rate}>
-                            {rate}×
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() =>
-                        requestTimestampNote(canvasNoteId(localVideoShape), localVideoShape.id)
-                      }
-                    >
-                      <Clock3 size={15} /> Add note at current time
-                    </button>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('video')}
-                    >
-                      <Video size={15} /> Replace video file
-                    </button>
-                    <TagsField
-                      id={localVideoShape.id}
-                      tags={localVideoShape.props.tags}
-                      placeholder="interview, source"
-                      onChange={(tags) => updateLocalVideoShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {embeddedVideoShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={embeddedVideoShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) =>
-                          updateEmbeddedVideoShape({ caption: event.target.value })
-                        }
-                      />
-                    </label>
-                    <div className="canvas-property-group">
-                      <span>Source</span>
-                      <p className="m-0 break-all text-xs font-normal text-muted">
-                        {embeddedVideoShape.props.url}
-                      </p>
+                        <Trash2 size={15} /> Delete
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() =>
-                        requestTimestampNote(
-                          canvasNoteId(embeddedVideoShape),
-                          embeddedVideoShape.id
-                        )
-                      }
-                    >
-                      <Clock3 size={15} /> Add note at current time
-                    </button>
-                    <TagsField
-                      id={embeddedVideoShape.id}
-                      tags={embeddedVideoShape.props.tags}
-                      placeholder="video, reference"
-                      onChange={(tags) => updateEmbeddedVideoShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {timestampShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Timestamp (seconds)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={604_800}
-                        step={0.1}
-                        value={timestampShape.props.timestampSeconds}
-                        onChange={(event) =>
-                          updateTimestampShape({
-                            timestampSeconds: Math.min(
-                              604_800,
-                              Math.max(0, event.target.valueAsNumber || 0)
-                            )
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Note</span>
-                      <textarea
-                        value={timestampShape.props.content}
-                        maxLength={100_000}
-                        rows={5}
-                        onChange={(event) => updateTimestampShape({ content: event.target.value })}
-                      />
-                    </label>
-                    <fieldset className="canvas-property-group">
-                      <legend>Background</legend>
-                      <div className="flex flex-wrap gap-2">
-                        {BACKGROUNDS.map((background) => (
-                          <button
-                            type="button"
-                            key={background.value}
-                            className={`canvas-color-chip ${timestampShape.props.background === background.value ? 'is-active' : ''}`}
-                            style={{ background: background.color }}
-                            aria-label={`${background.label} background`}
-                            aria-pressed={timestampShape.props.background === background.value}
-                            onClick={() => updateTimestampShape({ background: background.value })}
-                          />
-                        ))}
-                      </div>
-                    </fieldset>
-                    <TagsField
-                      id={timestampShape.id}
-                      tags={timestampShape.props.tags}
-                      placeholder="quote, insight"
-                      onChange={(tags) => updateTimestampShape({ tags })}
-                    />
-                  </>
-                )}
-
-                <div className="canvas-property-actions">
-                  {selectedShape.type === 'group' && (
-                    <button type="button" onClick={() => editor?.ungroupShapes([selectedShape.id])}>
-                      <Ungroup size={15} /> Ungroup
-                    </button>
-                  )}
-                  <button type="button" onClick={() => editor?.toggleLock([selectedShape.id])}>
-                    {selectedShape.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
-                    {selectedShape.isLocked ? 'Unlock' : 'Lock'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => editor?.duplicateShapes([selectedShape.id], { x: 24, y: 24 })}
-                  >
-                    <Copy size={15} /> Duplicate
-                  </button>
-                  <button
-                    type="button"
-                    className="is-danger"
-                    onClick={() => editor?.deleteShapes([selectedShape.id])}
-                  >
-                    <Trash2 size={15} /> Delete
-                  </button>
-                </div>
+                  </div>
+                </details>
               </div>
             )}
 
@@ -2459,6 +2800,33 @@ export function BoardEditor({
           </aside>
         )}
       </section>
+
+      <Dialog
+        open={reloadDialogOpen}
+        title="Reload disk version?"
+        eyebrow="Unsaved local changes"
+        description="Reloading discards the edits currently open in this window. Export a recovery copy first if you may need them."
+        dismissOnBackdrop={!reloading}
+        onClose={() => {
+          if (!reloading) setReloadDialogOpen(false)
+        }}
+        footer={
+          <>
+            <Button variant="quiet" disabled={reloading} onClick={() => setReloadDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={reloading} onClick={() => void reloadDiskVersion()}>
+              Reload and discard local edits
+            </Button>
+          </>
+        }
+      >
+        <Feedback
+          tone="warning"
+          title="This cannot be undone"
+          message="CanvasNote will replace the open canvas with the latest board saved on disk."
+        />
+      </Dialog>
 
       <Dialog
         open={exportDialogOpen}

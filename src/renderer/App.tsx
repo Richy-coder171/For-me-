@@ -137,6 +137,7 @@ export default function App(): React.JSX.Element {
           stored={store.currentBoard}
           onBack={store.closeBoard}
           onSave={store.saveBoard}
+          onClearError={store.clearError}
           settings={settings}
           onOpenSettings={openSettings}
           onOpenTemplates={async () => {
@@ -147,9 +148,6 @@ export default function App(): React.JSX.Element {
           onRegisterClosePreparation={registerClosePreparation}
         />
         {settingsPanel}
-        {store.error && !settingsOpen && (
-          <ErrorToast message={store.error} onDismiss={store.clearError} />
-        )}
       </>
     )
   }

@@ -275,6 +275,22 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
     .poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.currentTime))
     .toBeLessThanOrEqual(0.15)
 
+  const properties = page.getByRole('complementary', { name: 'Properties panel' })
+  await expect(properties.getByRole('heading', { name: 'Local video' })).toBeVisible()
+  const timestampItem = properties.getByRole('button', { name: 'Go to timestamp 00:00' })
+  await expect(timestampItem).toContainText('Key interview moment')
+  await localVideo.evaluate((video: HTMLVideoElement) => {
+    video.currentTime = Math.min(0.4, video.duration)
+  })
+  await timestampItem.click()
+  await expect
+    .poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.currentTime))
+    .toBeLessThanOrEqual(0.15)
+  await expect.poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.paused)).toBe(true)
+
+  const widthInput = properties.getByLabel('Width')
+  await expect(widthInput).toBeEditable()
+
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Embed YouTube or Vimeo video' }).click()
   await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
@@ -336,10 +352,8 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
     .poll(async () => (await movedLink.boundingBox())?.width)
     .toBeGreaterThan(beforeResize!.width + 20)
 
-  await page
-    .getByRole('complementary', { name: 'Properties panel' })
-    .getByRole('button', { name: 'Duplicate' })
-    .click()
+  await properties.locator('summary').filter({ hasText: 'Advanced' }).click()
+  await properties.getByRole('button', { name: 'Duplicate' }).click()
   await expect(page.getByText('Reference guide')).toHaveCount(2)
 
   const canvasApplication = page.getByRole('application', { name: 'tldraw' })

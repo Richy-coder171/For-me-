@@ -713,6 +713,31 @@ button:not(:disabled) {
   color: var(--danger);
 }
 
+.canvas-save-failure {
+  z-index: 450;
+  padding: var(--space-2) var(--space-3) 0;
+  background: var(--surface);
+}
+
+.canvas-save-details {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+}
+
+.canvas-save-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.canvas-save-details code {
+  display: block;
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
 .canvas-toolbar {
   position: absolute;
   top: 1rem;
@@ -1015,6 +1040,106 @@ button:not(:disabled) {
   flex-direction: column;
   gap: 1rem;
   padding: 1rem;
+}
+
+.canvas-property-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.canvas-property-section > summary {
+  cursor: pointer;
+  padding: 0.7rem 0.75rem;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.canvas-property-section[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.canvas-property-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.75rem;
+}
+
+.canvas-transform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.canvas-transform-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.canvas-transform-grid input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.5rem 0.55rem;
+  color: var(--ink);
+  font-size: 0.72rem;
+  outline: 0;
+}
+
+.canvas-transform-grid input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
+}
+
+.canvas-timestamp-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.canvas-timestamp-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--canvas);
+  padding: 0.5rem 0.6rem;
+  color: var(--ink);
+  text-align: left;
+}
+
+.canvas-timestamp-list button:hover {
+  border-color: color-mix(in srgb, var(--accent), transparent 55%);
+  background: var(--surface-hover);
+}
+
+.canvas-timestamp-list strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-timestamp-list span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-property-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .canvas-property-group {
