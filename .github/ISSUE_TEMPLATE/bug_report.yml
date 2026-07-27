@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a reproducible CanvasNote problem or data-integrity concern.
+title: '[Bug]: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve CanvasNote. Do not attach private boards, personal media, credentials, or unredacted filesystem paths. For security vulnerabilities, follow SECURITY.md instead of opening a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: CanvasNote version
+      description: Enter the version shown in CanvasNote or the commit hash used for a source build.
+      placeholder: 0.1.0 or commit hash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest repeatable sequence. Use a disposable workspace when possible.
+      placeholder: |
+        1. Open…
+        2. Select…
+        3. Observe…
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should CanvasNote have done?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include exact, sanitized error text when useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Optional. Redact board contents, paths, account names, and other private information.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic information
+      description: Optional. Include only relevant, sanitized details such as the build source, file type, or error text. Never paste secrets or private board data.
+
+  - type: dropdown
+    id: data_loss
+    attributes:
+      label: Did data loss occur?
+      description: If yes or unsure, stop editing the affected workspace and preserve a copy before further testing.
+      options:
+        - 'No'
+        - 'Yes'
+        - Unsure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the CanvasNote Code of Conduct.
+          required: true

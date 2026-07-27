@@ -21,6 +21,7 @@ export type BoardSection = 'recent' | 'all' | 'favorites' | 'templates' | 'trash
 export type BoardView = 'grid' | 'list'
 
 interface AppState {
+  initialized: boolean
   appInfo: AppInfo | null
   currentWorkspace: WorkspaceSummary | null
   currentBoard: OpenBoard | null
@@ -82,6 +83,7 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   return {
+    initialized: false,
     appInfo: null,
     currentWorkspace: null,
     currentBoard: null,
@@ -96,14 +98,15 @@ export const useAppStore = create<AppState>((set, get) => {
     error: null,
 
     initialize: async () => {
-      set({ operation: 'loading', error: null })
+      if (get().operation === 'loading') return
+      set({ initialized: false, operation: 'loading', error: null })
       try {
         const [appInfo, recentWorkspaces, settingsSnapshot] = await Promise.all([
           window.canvasNote.app.getInfo(),
           window.canvasNote.workspace.recent(),
           window.canvasNote.settings.get()
         ])
-        set({ appInfo, recentWorkspaces, settingsSnapshot, operation: 'idle' })
+        set({ appInfo, recentWorkspaces, settingsSnapshot })
         const openDefault = !skipDefaultWorkspaceOnce
         skipDefaultWorkspaceOnce = false
         const defaultWorkspace = openDefault
@@ -111,9 +114,13 @@ export const useAppStore = create<AppState>((set, get) => {
           : undefined
         if (defaultWorkspace) {
           await activateWorkspace(await window.canvasNote.workspace.openRecent(defaultWorkspace.id))
+        } else {
+          set({ operation: 'idle' })
         }
       } catch (error) {
         fail(error)
+      } finally {
+        set({ initialized: true })
       }
     },
 

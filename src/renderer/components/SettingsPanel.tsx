@@ -1,37 +1,94 @@
 import { useState } from 'react'
-import { FolderOpen, HardDrive, Keyboard, Settings2, ShieldCheck, X } from 'lucide-react'
+import {
+  CircleCheck,
+  FolderOpen,
+  HardDrive,
+  Info,
+  Keyboard,
+  Monitor,
+  Palette,
+  RotateCcw,
+  ShieldCheck,
+  Video
+} from 'lucide-react'
 
 import type { AppSettings, SettingsSnapshot } from '../../shared/schemas/settings'
 import type { WorkspaceSummary } from '../../shared/schemas/workspace'
+import { Button, Dialog, Feedback } from './ui'
 
 interface SettingsPanelProps {
   snapshot: SettingsSnapshot
   recentWorkspaces: WorkspaceSummary[]
+  initialSection?: SettingsSection
+  version?: string
+  platform?: string
   onChange: (settings: AppSettings) => Promise<void>
   onOpenDataLocation: () => Promise<void>
   onOpenBackups: () => Promise<void>
   onClose: () => void
 }
 
+export type SettingsSection =
+  'appearance' | 'canvas' | 'media' | 'shortcuts' | 'privacy' | 'diagnostics' | 'about'
+
+const sections: ReadonlyArray<{
+  id: SettingsSection
+  label: string
+  icon: typeof Palette
+}> = [
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'canvas', label: 'Canvas & autosave', icon: Monitor },
+  { id: 'media', label: 'Media & backups', icon: Video },
+  { id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard },
+  { id: 'privacy', label: 'Privacy & security', icon: ShieldCheck },
+  { id: 'diagnostics', label: 'Diagnostics', icon: HardDrive },
+  { id: 'about', label: 'About', icon: Info }
+]
+
 const fieldClass =
-  'mt-1.5 h-10 w-full rounded-lg border border-line bg-canvas px-3 text-sm text-ink outline-none focus:border-accent'
+  'mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-ink outline-none focus:border-accent'
+
+function SettingGroup({
+  title,
+  description,
+  children
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <section className="border-b border-line pb-5 last:border-b-0 last:pb-0">
+      <h3 className="cn-section-title">{title}</h3>
+      {description && <p className="cn-body-sm mt-1 max-w-xl leading-5">{description}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
 
 export function SettingsPanel({
   snapshot,
   recentWorkspaces,
+  initialSection = 'appearance',
+  version = '0.1.0',
+  platform = 'desktop',
   onChange,
   onOpenDataLocation,
   onOpenBackups,
   onClose
 }: SettingsPanelProps): React.JSX.Element {
+  const [section, setSection] = useState<SettingsSection>(initialSection)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const apply = async (patch: Partial<AppSettings>): Promise<void> => {
     setBusy(true)
+    setSaved(false)
     setError(null)
     try {
       await onChange({ ...snapshot.values, ...patch })
+      setSaved(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update settings.')
     } finally {
@@ -49,214 +106,319 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-[1200] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm">
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-line bg-surface text-ink shadow-panel"
-      >
-        <header className="flex items-center justify-between border-b border-line px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-accent">
-              <Settings2 size={18} />
-            </span>
-            <div>
-              <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
-                CanvasNote
-              </p>
-              <h2 id="settings-title" className="m-0 mt-0.5 text-base font-semibold">
-                Settings
-              </h2>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Close settings"
-            onClick={onClose}
-          >
-            <X size={17} />
-          </button>
-        </header>
-
-        <div className="max-h-[calc(90vh-4.6rem)] space-y-6 overflow-y-auto p-5 sm:p-6">
-          <section>
-            <h3 className="text-sm font-semibold">Appearance</h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-semibold text-muted">
-                Theme
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.theme}
-                  disabled={busy}
-                  onChange={(event) =>
-                    void apply({ theme: event.target.value as AppSettings['theme'] })
-                  }
-                >
-                  <option value="system">Use system</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-muted">
-                Accent colour
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.accent}
-                  disabled={busy}
-                  onChange={(event) =>
-                    void apply({ accent: event.target.value as AppSettings['accent'] })
-                  }
-                >
-                  <option value="indigo">Indigo</option>
-                  <option value="violet">Violet</option>
-                  <option value="teal">Teal</option>
-                  <option value="amber">Amber</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section className="border-t border-line pt-5">
-            <h3 className="text-sm font-semibold">Workspace & saving</h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-semibold text-muted">
-                Default workspace
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.defaultWorkspaceId ?? ''}
-                  disabled={busy}
-                  onChange={(event) =>
-                    void apply({ defaultWorkspaceId: event.target.value || null })
-                  }
-                >
-                  <option value="">Show welcome screen</option>
-                  {recentWorkspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-muted">
-                Autosave interval
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.autosaveDelayMs}
-                  disabled={busy}
-                  onChange={(event) => void apply({ autosaveDelayMs: Number(event.target.value) })}
-                >
-                  <option value={500}>0.5 seconds</option>
-                  <option value={750}>0.75 seconds</option>
-                  <option value={1500}>1.5 seconds</option>
-                  <option value={3000}>3 seconds</option>
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-muted">
-                Rotating backups per board
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.backupLimit}
-                  disabled={busy}
-                  onChange={(event) => void apply({ backupLimit: Number(event.target.value) })}
-                >
-                  {[1, 3, 5, 7, 10].map((count) => (
-                    <option key={count} value={count}>
-                      {count}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-muted">
-                Default video speed
-                <select
-                  className={fieldClass}
-                  value={snapshot.values.defaultPlaybackRate}
-                  disabled={busy}
-                  onChange={(event) =>
-                    void apply({ defaultPlaybackRate: Number(event.target.value) })
-                  }
-                >
-                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                    <option key={rate} value={rate}>
-                      {rate}×
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-muted">
-              Media import mode: <strong>Copy into workspace</strong>. This keeps board paths
-              portable and prevents external files from granting the renderer filesystem access.
-            </p>
-          </section>
-
-          <section className="border-t border-line pt-5">
-            <div className="flex items-start gap-3">
-              <Keyboard className="mt-0.5 text-accent" size={17} />
-              <div>
-                <h3 className="text-sm font-semibold">Keyboard shortcuts</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">
-                  N note · C checklist · I image · Shift+V video · F frame · L connection ·
-                  Ctrl/Cmd+K search · Ctrl/Cmd+S save · Ctrl/Cmd+Z undo · 0 fit board · 1 reset zoom
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="border-t border-line pt-5">
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 text-accent" size={17} />
-              <div>
-                <h3 className="text-sm font-semibold">Privacy</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">
-                  Boards, indexes, media, and backups stay on this computer. CanvasNote has no
-                  account, telemetry, cloud sync, or collaboration service.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="border-t border-line pt-5">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <HardDrive size={16} /> Data locations
-            </div>
-            <p className="mt-2 break-all text-xs text-muted">App data: {snapshot.appDataPath}</p>
-            {snapshot.workspacePath && (
-              <p className="mt-1 break-all text-xs text-muted">
-                Workspace: {snapshot.workspacePath}
-              </p>
+    <Dialog
+      open
+      wide
+      title="Settings"
+      eyebrow="CanvasNote"
+      description="Changes are saved immediately."
+      closeLabel="Close settings"
+      onClose={onClose}
+      footer={
+        <div className="flex w-full items-center justify-between gap-4">
+          <span className="cn-body-sm" role="status" aria-live="polite">
+            {busy ? (
+              'Saving…'
+            ) : saved ? (
+              <span className="inline-flex items-center gap-1.5 text-success">
+                <CircleCheck size={14} aria-hidden="true" /> Saved
+              </span>
+            ) : (
+              'Saved locally'
             )}
-            <div className="mt-3 flex flex-wrap gap-2">
+          </span>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      }
+    >
+      <div className="grid min-h-[25rem] gap-6 sm:grid-cols-[11rem_minmax(0,1fr)]">
+        <nav className="flex gap-1 overflow-x-auto sm:flex-col" aria-label="Settings sections">
+          {sections.map((item) => {
+            const Icon = item.icon
+            return (
               <button
+                key={item.id}
                 type="button"
-                className="canvas-secondary-action"
-                onClick={() => void openLocation('data')}
+                aria-current={section === item.id ? 'page' : undefined}
+                onClick={() => setSection(item.id)}
+                className={`flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors sm:w-full ${
+                  section === item.id
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-muted hover:bg-surface-hover hover:text-ink'
+                }`}
               >
-                <FolderOpen size={15} /> Open app data
+                <Icon size={15} aria-hidden="true" />
+                {item.label}
               </button>
-              <button
-                type="button"
-                className="canvas-secondary-action"
-                disabled={!snapshot.workspacePath}
-                onClick={() => void openLocation('backups')}
+            )
+          })}
+        </nav>
+
+        <div className="min-w-0 space-y-5">
+          {section === 'appearance' && (
+            <>
+              <SettingGroup
+                title="Appearance"
+                description="Choose how CanvasNote looks. System follows your operating-system setting."
               >
-                <FolderOpen size={15} /> Open workspace backups
-              </button>
-            </div>
-          </section>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="cn-label">
+                    Theme
+                    <select
+                      className={fieldClass}
+                      value={snapshot.values.theme}
+                      disabled={busy}
+                      onChange={(event) =>
+                        void apply({ theme: event.target.value as AppSettings['theme'] })
+                      }
+                    >
+                      <option value="system">Use system</option>
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                  <label className="cn-label">
+                    Accent colour
+                    <select
+                      className={fieldClass}
+                      value={snapshot.values.accent}
+                      disabled={busy}
+                      onChange={(event) =>
+                        void apply({ accent: event.target.value as AppSettings['accent'] })
+                      }
+                    >
+                      <option value="indigo">Indigo</option>
+                      <option value="violet">Violet</option>
+                      <option value="teal">Teal</option>
+                      <option value="amber">Amber</option>
+                    </select>
+                  </label>
+                </div>
+              </SettingGroup>
+              <SettingGroup title="Reset appearance">
+                <Button
+                  leadingIcon={<RotateCcw size={15} />}
+                  disabled={busy}
+                  onClick={() => void apply({ theme: 'system', accent: 'indigo' })}
+                >
+                  Reset appearance settings
+                </Button>
+              </SettingGroup>
+            </>
+          )}
+
+          {section === 'canvas' && (
+            <SettingGroup
+              title="Canvas & autosave"
+              description="CanvasNote saves after edits settle. Shorter intervals write more often."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="cn-label">
+                  Default workspace
+                  <select
+                    className={fieldClass}
+                    value={snapshot.values.defaultWorkspaceId ?? ''}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void apply({ defaultWorkspaceId: event.target.value || null })
+                    }
+                  >
+                    <option value="">Show welcome screen</option>
+                    {recentWorkspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="cn-label">
+                  Autosave interval
+                  <select
+                    className={fieldClass}
+                    value={snapshot.values.autosaveDelayMs}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void apply({ autosaveDelayMs: Number(event.target.value) })
+                    }
+                  >
+                    <option value={500}>0.5 seconds</option>
+                    <option value={750}>0.75 seconds</option>
+                    <option value={1500}>1.5 seconds</option>
+                    <option value={3000}>3 seconds</option>
+                  </select>
+                </label>
+              </div>
+            </SettingGroup>
+          )}
+
+          {section === 'media' && (
+            <>
+              <SettingGroup
+                title="Media"
+                description="Imported media is copied into the workspace so boards remain portable."
+              >
+                <label className="cn-label block max-w-xs">
+                  Default video speed
+                  <select
+                    className={fieldClass}
+                    value={snapshot.values.defaultPlaybackRate}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void apply({ defaultPlaybackRate: Number(event.target.value) })
+                    }
+                  >
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                      <option key={rate} value={rate}>
+                        {rate}×
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="cn-body-sm mt-3">Import mode: Copy into workspace</p>
+              </SettingGroup>
+              <SettingGroup
+                title="Backups"
+                description="A rotating copy is stored before an existing board file is replaced."
+              >
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="cn-label w-48">
+                    Rotating backups per board
+                    <select
+                      className={fieldClass}
+                      value={snapshot.values.backupLimit}
+                      disabled={busy}
+                      onChange={(event) => void apply({ backupLimit: Number(event.target.value) })}
+                    >
+                      {[1, 3, 5, 7, 10].map((count) => (
+                        <option key={count} value={count}>
+                          {count}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    leadingIcon={<FolderOpen size={15} />}
+                    disabled={!snapshot.workspacePath}
+                    onClick={() => void openLocation('backups')}
+                  >
+                    Open workspace backups
+                  </Button>
+                </div>
+              </SettingGroup>
+            </>
+          )}
+
+          {section === 'shortcuts' && (
+            <SettingGroup
+              title="Keyboard shortcuts"
+              description="Shortcuts are disabled while you type in a field."
+            >
+              <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-2 text-xs">
+                {[
+                  ['Search this board', 'Ctrl/Cmd + K'],
+                  ['Save board', 'Ctrl/Cmd + S'],
+                  ['Undo / redo', 'Ctrl/Cmd + Z / Shift + Z'],
+                  ['Add note / checklist', 'N / C'],
+                  ['Import image / video', 'I / Shift + V'],
+                  ['Frame / connection', 'F / L'],
+                  ['Fit board / reset zoom', '0 / 1']
+                ].map(([label, keys]) => (
+                  <div key={label} className="contents">
+                    <dt className="text-muted">{label}</dt>
+                    <dd className="cn-shortcut text-right">{keys}</dd>
+                  </div>
+                ))}
+              </dl>
+            </SettingGroup>
+          )}
+
+          {section === 'privacy' && (
+            <SettingGroup title="Privacy & security">
+              <Feedback
+                tone="info"
+                title="Local by default"
+                message="Boards, indexes, media, and backups stay on this computer. CanvasNote has no account, telemetry, cloud sync, or collaboration service."
+              />
+              <p className="cn-body-sm mt-4 leading-5">
+                The renderer is sandboxed and can access files only through validated,
+                workspace-scoped application actions.
+              </p>
+            </SettingGroup>
+          )}
+
+          {section === 'diagnostics' && (
+            <SettingGroup
+              title="Data locations"
+              description="Paths are shown for troubleshooting. Do not share private board files in public issues."
+            >
+              <dl className="space-y-3">
+                <div>
+                  <dt className="cn-label">Application data</dt>
+                  <dd
+                    className="cn-metadata mt-1 truncate rounded-md bg-background px-2.5 py-2"
+                    title={snapshot.appDataPath}
+                  >
+                    App data: {snapshot.appDataPath}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="cn-label">Current workspace</dt>
+                  <dd
+                    className="cn-metadata mt-1 truncate rounded-md bg-background px-2.5 py-2"
+                    title={snapshot.workspacePath ?? 'No workspace open'}
+                  >
+                    Workspace: {snapshot.workspacePath ?? 'No workspace open'}
+                  </dd>
+                </div>
+                {snapshot.workspacePath && (
+                  <div>
+                    <dt className="cn-label">Backup location</dt>
+                    <dd className="cn-metadata mt-1 truncate rounded-md bg-background px-2.5 py-2">
+                      {snapshot.workspacePath.replace(/[\\/]$/, '')}/backups
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  leadingIcon={<FolderOpen size={15} />}
+                  onClick={() => void openLocation('data')}
+                >
+                  Open app data
+                </Button>
+                <Button
+                  leadingIcon={<FolderOpen size={15} />}
+                  disabled={!snapshot.workspacePath}
+                  onClick={() => void openLocation('backups')}
+                >
+                  Open workspace backups
+                </Button>
+              </div>
+            </SettingGroup>
+          )}
+
+          {section === 'about' && (
+            <SettingGroup title="About CanvasNote">
+              <div className="rounded-lg border border-border bg-background p-4">
+                <p className="cn-app-title">CanvasNote {version}</p>
+                <p className="cn-body-sm mt-1">Local-first visual notebook for {platform}.</p>
+                <p className="cn-body-sm mt-4 leading-5">
+                  CanvasNote is under active development. Keep backups of important workspaces.
+                </p>
+              </div>
+            </SettingGroup>
+          )}
 
           {error && (
-            <p
-              className="rounded-lg border border-danger/25 bg-danger/5 px-3 py-2 text-xs text-danger"
-              role="alert"
-            >
-              {error}
-            </p>
+            <Feedback
+              tone="danger"
+              title="Settings could not be updated"
+              message={error}
+              onDismiss={() => setError(null)}
+            />
           )}
         </div>
-      </section>
-    </div>
+      </div>
+    </Dialog>
   )
 }

@@ -20,7 +20,7 @@ Board files are the portable source of truth. SQLite is a rebuildable index and 
 
 ## Delivery phases
 
-Phases 1-5 are complete, including settings, configurable backups, media repair, and save-before-close recovery. The current milestone is final quality and packaging.
+Phases 1-5 provide the functional baseline, including settings, configurable backups, media repair, and save-before-close recovery. The current milestone is UI/UX consistency, accessibility, regression coverage, and repository quality.
 
 1. **Foundation** — Electron/Vite/React/TypeScript, secure main/preload boundary, Tailwind, schemas, tests, application shell, documentation.
 2. **Workspace and dashboard** — workspace creation/opening, SQLite migrations, board CRUD, atomic `.canvasnote` files, recents, favourites, trash.
@@ -29,7 +29,7 @@ Phases 1-5 are complete, including settings, configurable backups, media repair,
 5. **Discovery and portability** — board/in-board search, templates, JSON/PNG/PDF import/export, settings, backups and recovery.
 6. **Quality** — schema/service/renderer tests, Electron workflow, accessibility, performance fixture, packaging and manual verification.
 
-Each phase ends with passing relevant checks and a pushed Git commit.
+Each phase ends with relevant passing checks and a logical Git commit.
 
 ## Data model
 
@@ -74,7 +74,7 @@ Every payload and response crossing the boundary is parsed with Zod. Renderer-pr
 
 ## Major risks
 
-- **Native SQLite ABI** — rebuild `better-sqlite3` for the pinned Electron version during install/package.
+- **Native SQLite ABI** — the explicit setup verifies the shipped `better-sqlite3` N-API binary; packaging keeps the native dependency unpacked and does not perform a source rebuild.
 - **Video codecs** — report unsupported formats/codecs without losing node metadata; tests use Chromium-supported fixtures.
 - **Canvas/API churn** — pin tldraw and keep custom-shape integration in a small renderer module.
 - **Large media/boards** — stream copies, debounce persistence/indexing, keep videos unloaded until active, and test generated large boards.

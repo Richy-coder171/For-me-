@@ -1,27 +1,33 @@
 import { useState } from 'react'
-import {
-  ArrowRight,
-  FileInput,
-  FolderOpen,
-  LoaderCircle,
-  Moon,
-  Plus,
-  Settings2,
-  Sun
-} from 'lucide-react'
+import { ArrowRight, FileInput, FolderOpen, Moon, Plus, Settings2, Sun } from 'lucide-react'
 
 import { useAppStore } from '../stores/appStore'
 import { BrandMark } from './BrandMark'
+import { Button, EmptyState, IconButton } from './ui'
 
 interface WelcomeScreenProps {
   dark: boolean
+  settingsAvailable?: boolean
   onToggleTheme: () => void
   onImportBoard: () => void
   onOpenSettings: () => void
 }
 
+const lastOpenedFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short'
+})
+
+function formatLastOpened(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'Last opened date unavailable'
+    : lastOpenedFormatter.format(date)
+}
+
 export function WelcomeScreen({
   dark,
+  settingsAvailable = true,
   onToggleTheme,
   onImportBoard,
   onOpenSettings
@@ -31,197 +37,168 @@ export function WelcomeScreen({
     appInfo,
     recentWorkspaces,
     operation,
-    error,
     createWorkspace,
     openWorkspace,
-    openRecentWorkspace,
-    clearError
+    openRecentWorkspace
   } = useAppStore()
   const busy = operation !== 'idle'
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <header className="flex h-20 items-center justify-between border-b border-line px-8 lg:px-12">
+    <main className="flex min-h-screen flex-col bg-background text-ink">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
         <BrandMark />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="icon-button"
+        <div className="flex items-center gap-1">
+          <IconButton
             aria-label="Open settings"
-            title="Settings"
-          >
-            <Settings2 size={17} />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            className="icon-button"
+            tooltip="Settings"
+            icon={<Settings2 size={17} />}
+            disabled={!settingsAvailable}
+            onClick={onOpenSettings}
+          />
+          <IconButton
             aria-label={dark ? 'Use light appearance' : 'Use dark appearance'}
-            title={dark ? 'Light appearance' : 'Dark appearance'}
-          >
-            {dark ? <Sun size={17} /> : <Moon size={17} />}
-          </button>
+            tooltip={dark ? 'Light appearance' : 'Dark appearance'}
+            icon={dark ? <Sun size={17} /> : <Moon size={17} />}
+            disabled={!settingsAvailable}
+            onClick={onToggleTheme}
+          />
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-12 px-8 py-12 lg:grid-cols-[1fr_0.86fr] lg:px-12 lg:py-16">
-        <section className="flex flex-col justify-center">
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-            Local-first visual thinking
-          </p>
-          <h1 className="max-w-xl text-4xl font-semibold leading-[1.08] tracking-[-0.045em] text-ink lg:text-5xl">
-            Ideas make more sense when you can see the connections.
+      <div className="mx-auto grid w-full max-w-5xl flex-1 gap-8 px-6 py-8 md:grid-cols-[20rem_minmax(0,1fr)] lg:gap-12 lg:px-8">
+        <section aria-labelledby="welcome-title">
+          <p className="cn-caption font-semibold uppercase tracking-[0.12em]">Local workspace</p>
+          <h1 id="welcome-title" className="cn-screen-title mt-2">
+            Start in CanvasNote
           </h1>
-          <p className="mt-5 max-w-lg text-[15px] leading-7 text-muted">
-            Build visual boards with notes, media, and timestamped video observations. Your
-            workspace stays on this computer.
+          <p className="cn-body mt-2">
+            Create a workspace on this computer, or open one you already use.
           </p>
 
-          <div className="mt-9 max-w-lg rounded-2xl border border-line bg-surface p-2 shadow-panel">
-            <label htmlFor="workspace-name" className="sr-only">
+          <form
+            className="mt-6 space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (name.trim() && !busy) void createWorkspace(name)
+            }}
+          >
+            <label htmlFor="workspace-name" className="cn-label block">
               New workspace name
             </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                id="workspace-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && name.trim() && !busy) void createWorkspace(name)
-                }}
-                maxLength={120}
-                className="min-w-0 flex-1 rounded-xl border-0 bg-transparent px-4 py-3 text-sm font-medium outline-none placeholder:text-faint focus:ring-2 focus:ring-accent/30"
-                placeholder="Workspace name"
-              />
-              <button
-                type="button"
-                className="primary-button"
-                disabled={!name.trim() || busy}
-                onClick={() => void createWorkspace(name)}
-              >
-                {operation === 'creating-workspace' ? (
-                  <LoaderCircle className="animate-spin" size={16} />
-                ) : (
-                  <Plus size={16} />
-                )}
-                Create workspace
-              </button>
-            </div>
+            <input
+              id="workspace-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={120}
+              disabled={busy}
+              className="h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm text-ink outline-none placeholder:text-faint focus:border-accent"
+              placeholder="Workspace name"
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              size="large"
+              className="w-full"
+              loading={operation === 'creating-workspace'}
+              disabled={!name.trim() || busy}
+              leadingIcon={<Plus size={16} />}
+            >
+              Create workspace
+            </Button>
+          </form>
+
+          <div className="my-5 flex items-center gap-3" aria-hidden="true">
+            <span className="h-px flex-1 bg-line" />
+            <span className="cn-caption">or</span>
+            <span className="h-px flex-1 bg-line" />
           </div>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void openWorkspace()}
-            className="mt-3 flex w-fit items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-muted transition hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
-          >
-            <FolderOpen size={16} />
-            Open an existing workspace
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onImportBoard}
-            className="mt-1 flex w-fit items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-muted transition hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
-          >
-            <FileInput size={16} />
-            Import a board into a workspace
-          </button>
-
-          {error && (
-            <div
-              role="alert"
-              className="mt-5 flex max-w-lg items-start justify-between gap-4 rounded-xl border border-danger/25 bg-danger/7 px-4 py-3 text-sm text-danger"
+          <div className="grid gap-2">
+            <Button
+              size="large"
+              className="w-full"
+              loading={operation === 'opening-workspace'}
+              disabled={busy}
+              leadingIcon={<FolderOpen size={16} />}
+              onClick={() => void openWorkspace()}
             >
-              <span>{error}</span>
-              <button type="button" className="font-semibold" onClick={clearError}>
-                Dismiss
-              </button>
-            </div>
-          )}
+              Open workspace
+            </Button>
+            <Button
+              variant="quiet"
+              className="w-full"
+              disabled={busy}
+              leadingIcon={<FileInput size={16} />}
+              onClick={onImportBoard}
+            >
+              Import a .canvasnote board
+            </Button>
+          </div>
         </section>
 
-        <aside className="relative min-h-[430px] overflow-hidden rounded-[24px] border border-line bg-board shadow-panel">
-          <div className="absolute inset-0 board-grid opacity-60" />
-          <div className="absolute left-[9%] top-[12%] w-[48%] rotate-[-2deg] rounded-lg border border-note-line bg-note p-5 shadow-card">
-            <div className="mb-3 h-2 w-20 rounded bg-note-strong" />
-            <div className="space-y-2">
-              <div className="h-1.5 w-full rounded bg-note-soft" />
-              <div className="h-1.5 w-[86%] rounded bg-note-soft" />
-              <div className="h-1.5 w-[62%] rounded bg-note-soft" />
+        <section className="min-w-0" aria-labelledby="recent-workspaces-title">
+          <div className="flex items-end justify-between gap-4 border-b border-line pb-3">
+            <div>
+              <h2 id="recent-workspaces-title" className="cn-section-title">
+                Recent workspaces
+              </h2>
+              <p className="cn-body-sm mt-1">Open a local workspace where you left off.</p>
             </div>
+            <span className="cn-metadata shrink-0">v{appInfo?.version ?? '0.1.0'}</span>
           </div>
-          <div className="absolute bottom-[15%] right-[8%] w-[52%] rotate-[1.5deg] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-            <div className="aspect-video bg-video p-4">
-              <div className="flex h-full items-center justify-center">
-                <span className="grid size-11 place-items-center rounded-full bg-white/95 pl-0.5 text-ink shadow-sm">
-                  ▶
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between px-4 py-3 text-[11px] font-medium text-muted">
-              <span>Research interview</span>
-              <span>02:35</span>
-            </div>
-          </div>
-          <svg className="absolute inset-0 size-full" aria-hidden="true">
-            <path
-              d="M 210 185 C 250 235, 275 250, 315 285"
-              fill="none"
-              stroke="var(--color-accent)"
-              strokeWidth="2"
-              strokeDasharray="5 5"
-              opacity="0.65"
+
+          {recentWorkspaces.length ? (
+            <ul className="m-0 max-h-[calc(100vh-10rem)] list-none overflow-y-auto p-0">
+              {recentWorkspaces.map((workspace) => (
+                <li key={workspace.id} className="border-b border-line last:border-b-0">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void openRecentWorkspace(workspace.id)}
+                    className="group flex w-full items-center gap-3 rounded-md px-2 py-3 text-left transition-colors hover:bg-surface-hover disabled:opacity-50"
+                    aria-label={`Open ${workspace.name}`}
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-surface text-muted shadow-sm">
+                      <FolderOpen size={16} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-ink">
+                        {workspace.name}
+                      </span>
+                      <span
+                        className="mt-0.5 block truncate text-xs text-muted"
+                        title={workspace.displayPath}
+                      >
+                        {workspace.displayPath}
+                      </span>
+                      <span className="mt-1 block text-xs text-faint">
+                        Last opened {formatLastOpened(workspace.lastOpenedAt)}
+                      </span>
+                    </span>
+                    <ArrowRight
+                      className="shrink-0 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-accent motion-reduce:transform-none"
+                      size={16}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              className="mt-5"
+              icon={<FolderOpen size={18} />}
+              title="No recent workspaces"
+              description="Create a workspace or open an existing folder. It will appear here next time."
             />
-          </svg>
-          <div className="absolute right-[13%] top-[17%] rounded-lg border border-accent/20 bg-accent-soft px-3 py-2 text-xs font-semibold text-accent shadow-sm">
-            02:35 — Key insight
-          </div>
-        </aside>
+          )}
+        </section>
       </div>
 
-      <section className="mx-auto max-w-6xl px-8 pb-10 lg:px-12">
-        <div className="flex items-end justify-between border-t border-line pt-7">
-          <div>
-            <h2 className="text-sm font-semibold">Recent workspaces</h2>
-            <p className="mt-1 text-xs text-muted">
-              {recentWorkspaces.length
-                ? 'Continue where you left off.'
-                : 'Your recent workspaces will appear here.'}
-            </p>
-          </div>
-          <span className="text-[11px] text-faint">CanvasNote {appInfo?.version ?? '0.1.0'}</span>
-        </div>
-
-        {recentWorkspaces.length > 0 && (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {recentWorkspaces.map((workspace) => (
-              <button
-                type="button"
-                key={workspace.id}
-                disabled={busy}
-                onClick={() => void openRecentWorkspace(workspace.id)}
-                className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent/35 hover:shadow-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 motion-reduce:transform-none"
-              >
-                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
-                  <FolderOpen size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{workspace.name}</span>
-                  <span className="mt-1 block truncate text-[11px] text-muted">
-                    {workspace.displayPath}
-                  </span>
-                </span>
-                <ArrowRight
-                  className="text-faint transition group-hover:translate-x-0.5 group-hover:text-accent motion-reduce:transform-none"
-                  size={16}
-                />
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <footer className="flex shrink-0 items-center justify-between border-t border-line px-6 py-3 text-xs text-muted">
+        <span>CanvasNote {appInfo?.version ?? '0.1.0'}</span>
+        <span>Boards and media stay on this computer.</span>
+      </footer>
     </main>
   )
 }

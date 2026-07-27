@@ -21,7 +21,15 @@ export function createAutosaveQueue(save: () => Promise<void>, delay = 750): Aut
 
   const flush = async (): Promise<void> => {
     clearTimer()
-    if (running) return running
+    if (running) {
+      try {
+        await running
+      } catch {
+        // A newer queued change may be valid even when the in-flight snapshot was not.
+      }
+      if (dirty) return flush()
+      return
+    }
     if (!dirty) return
 
     running = (async () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   LayoutTemplate,
   List,
   LoaderCircle,
+  MoreHorizontal,
   Moon,
   Plus,
   RotateCcw,
@@ -25,6 +26,7 @@ import type { BoardSummary } from '../../shared/schemas/board'
 import type { WorkspaceSummary } from '../../shared/schemas/workspace'
 import { BOARD_TEMPLATES, type TemplateId } from '../../shared/templates'
 import { BrandMark } from './BrandMark'
+import { Button, Dialog, EmptyState, IconButton } from './ui'
 
 export type DashboardSection = 'recent' | 'all' | 'favorites' | 'templates' | 'trash'
 export type DashboardView = 'grid' | 'list'
@@ -48,6 +50,7 @@ export interface DashboardProps {
   dark: boolean
   storage?: DashboardStorageSummary
   creating?: boolean
+  loading?: boolean
   onSectionChange: (section: DashboardSection) => void
   onViewChange: (view: DashboardView) => void
   onQueryChange: (query: string) => void
@@ -172,7 +175,147 @@ interface BoardItemProps {
   onToggleFavourite: () => void
   onTrash: () => void
   onRestore: () => void
-  onDelete: () => void
+  onRequestDelete: () => void
+}
+
+function BoardActionsMenu({
+  board,
+  onToggleFavourite,
+  onTrash,
+  onRestore,
+  onRequestDelete
+}: Omit<BoardItemProps, 'view' | 'onOpen'>): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    const closeOutside = (event: PointerEvent): void => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [open])
+
+  const runAction = (action: () => void): void => {
+    setOpen(false)
+    triggerRef.current?.focus()
+    action()
+  }
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []
+    )
+    if (!items.length) return
+
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number | null = null
+    if (event.key === 'ArrowDown') next = current < items.length - 1 ? current + 1 : 0
+    if (event.key === 'ArrowUp') next = current > 0 ? current - 1 : items.length - 1
+    if (event.key === 'Home') next = 0
+    if (event.key === 'End') next = items.length - 1
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+      return
+    }
+    if (next === null) return
+
+    event.preventDefault()
+    items[next]?.focus()
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <IconButton
+        ref={triggerRef}
+        aria-label={`Actions for ${board.title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        icon={<MoreHorizontal size={16} />}
+        tooltip={`Actions for ${board.title}`}
+        onClick={() => setOpen((value) => !value)}
+      />
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={`Actions for ${board.title}`}
+          className="absolute right-0 top-full z-40 mt-1 min-w-44 rounded-lg border border-line bg-surface p-1 shadow-panel"
+          onKeyDown={handleMenuKeyDown}
+        >
+          {board.deletedAt ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs font-semibold text-muted hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+                onClick={() => runAction(onRestore)}
+              >
+                <RotateCcw size={14} /> Restore
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs font-semibold text-danger hover:bg-danger/10 focus-visible:outline-2 focus-visible:outline-danger"
+                onClick={() => runAction(onRequestDelete)}
+              >
+                <Trash2 size={14} /> Delete permanently
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs font-semibold text-muted hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+                onClick={() => runAction(onToggleFavourite)}
+              >
+                <Star size={14} fill={board.isFavorite ? 'currentColor' : 'none'} />
+                {board.isFavorite ? 'Remove from favourites' : 'Add to favourites'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs font-semibold text-danger hover:bg-danger/10 focus-visible:outline-2 focus-visible:outline-danger"
+                onClick={() => runAction(onTrash)}
+              >
+                <Trash2 size={14} /> Move to Trash
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BoardSkeleton({ view }: { view: DashboardView }): React.JSX.Element {
+  if (view === 'list') {
+    return (
+      <div className="flex animate-pulse items-center gap-4 rounded-xl border border-line bg-surface p-2 motion-reduce:animate-none">
+        <span className="h-14 w-24 shrink-0 rounded-lg bg-board" />
+        <span className="h-3 w-40 rounded-full bg-line" />
+        <span className="ml-auto h-3 w-24 rounded-full bg-line" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="animate-pulse overflow-hidden rounded-xl border border-line bg-surface motion-reduce:animate-none">
+      <div className="aspect-[16/10] bg-board" />
+      <div className="space-y-2 p-4">
+        <div className="h-3 w-2/3 rounded-full bg-line" />
+        <div className="h-2.5 w-1/2 rounded-full bg-line" />
+      </div>
+    </div>
+  )
 }
 
 function BoardItem({
@@ -182,56 +325,19 @@ function BoardItem({
   onToggleFavourite,
   onTrash,
   onRestore,
-  onDelete
+  onRequestDelete
 }: BoardItemProps): React.JSX.Element {
   const date = board.deletedAt ?? board.updatedAt
   const datePrefix = board.deletedAt ? 'Deleted' : 'Updated'
   const itemLabel = `${board.itemCount} ${board.itemCount === 1 ? 'item' : 'items'}`
-  const actions = board.deletedAt ? (
-    <>
-      <button
-        type="button"
-        onClick={onRestore}
-        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-muted transition hover:bg-accent-soft hover:text-accent ${focusRing}`}
-        aria-label={`Restore ${board.title}`}
-      >
-        <RotateCcw size={14} />
-        Restore
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className={`grid size-9 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger ${focusRing}`}
-        aria-label={`Delete ${board.title} permanently`}
-        title="Delete permanently"
-      >
-        <Trash2 size={15} />
-      </button>
-    </>
-  ) : (
-    <>
-      <button
-        type="button"
-        onClick={onToggleFavourite}
-        className={`grid size-9 place-items-center rounded-lg text-muted transition hover:bg-accent-soft hover:text-accent ${focusRing}`}
-        aria-label={`${board.isFavorite ? 'Remove' : 'Add'} ${board.title} ${
-          board.isFavorite ? 'from' : 'to'
-        } favourites`}
-        aria-pressed={board.isFavorite}
-        title={board.isFavorite ? 'Remove from favourites' : 'Add to favourites'}
-      >
-        <Star size={15} fill={board.isFavorite ? 'currentColor' : 'none'} />
-      </button>
-      <button
-        type="button"
-        onClick={onTrash}
-        className={`grid size-9 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger ${focusRing}`}
-        aria-label={`Move ${board.title} to trash`}
-        title="Move to trash"
-      >
-        <Trash2 size={15} />
-      </button>
-    </>
+  const actions = (
+    <BoardActionsMenu
+      board={board}
+      onToggleFavourite={onToggleFavourite}
+      onTrash={onTrash}
+      onRestore={onRestore}
+      onRequestDelete={onRequestDelete}
+    />
   )
 
   if (view === 'list') {
@@ -252,6 +358,9 @@ function BoardItem({
               <span className="truncate text-sm font-semibold tracking-[-0.01em]">
                 {board.title}
               </span>
+              {board.isFavorite && !board.deletedAt && (
+                <Star size={13} className="shrink-0 text-accent" fill="currentColor" />
+              )}
             </span>
             <span className="mt-1 block text-xs text-muted sm:hidden">{itemLabel}</span>
           </span>
@@ -260,13 +369,13 @@ function BoardItem({
             {datePrefix} {formatDate(date)}
           </span>
         </button>
-        <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
+        <div className="flex shrink-0 items-center">{actions}</div>
       </article>
     )
   }
 
   return (
-    <article className="group min-w-0 overflow-hidden rounded-xl border border-line bg-surface shadow-sm transition hover:-translate-y-0.5 hover:border-accent/30 hover:shadow-card motion-reduce:transform-none">
+    <article className="group relative min-w-0 rounded-xl border border-line bg-surface shadow-sm transition hover:-translate-y-0.5 hover:border-accent/30 hover:shadow-card motion-reduce:transform-none">
       <button
         type="button"
         onClick={onOpen}
@@ -274,12 +383,15 @@ function BoardItem({
         className={`block w-full text-left ${focusRing}`}
         aria-label={`Open ${board.title}`}
       >
-        <span className="block aspect-[16/10] overflow-hidden border-b border-line">
+        <span className="block aspect-[16/10] overflow-hidden rounded-t-xl border-b border-line">
           <BoardPreview board={board} />
         </span>
         <span className="block px-4 pb-3 pt-3.5">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold tracking-[-0.01em]">{board.title}</span>
+            {board.isFavorite && !board.deletedAt && (
+              <Star size={13} className="shrink-0 text-accent" fill="currentColor" />
+            )}
           </span>
           <span className="mt-1.5 block text-xs text-muted">
             {datePrefix} {formatDate(date)} · {itemLabel}
@@ -287,7 +399,7 @@ function BoardItem({
         </span>
       </button>
       <div className="flex min-h-11 items-center justify-end border-t border-line/80 px-2.5">
-        <div className="flex items-center gap-0.5">{actions}</div>
+        {actions}
       </div>
     </article>
   )
@@ -302,6 +414,7 @@ export function Dashboard({
   dark,
   storage,
   creating = false,
+  loading = false,
   onSectionChange,
   onViewChange,
   onQueryChange,
@@ -321,6 +434,8 @@ export function Dashboard({
   const [boardTitle, setBoardTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [deleteCandidate, setDeleteCandidate] = useState<DashboardBoardRow | null>(null)
+  const deleteCancelRef = useRef<HTMLButtonElement>(null)
 
   const sectionCounts = useMemo(
     () =>
@@ -354,7 +469,7 @@ export function Dashboard({
   const storagePercent = storage?.totalBytes
     ? Math.min(100, Math.max(0, (storage.usedBytes / storage.totalBytes) * 100))
     : null
-  const busy = creating || submitting
+  const busy = creating || submitting || loading
 
   async function createBoard(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -573,6 +688,7 @@ export function Dashboard({
                   <div className="flex items-center gap-2">
                     <div
                       className="flex rounded-xl border border-line bg-surface p-1"
+                      role="group"
                       aria-label="Board view"
                     >
                       <button
@@ -711,55 +827,72 @@ export function Dashboard({
             ) : (
               <>
                 <div className="mt-7 flex items-center justify-between border-b border-line pb-3">
-                  <p className="text-xs font-medium text-muted">
-                    {visibleBoards.length} {visibleBoards.length === 1 ? 'board' : 'boards'}
-                    {query ? ` matching “${query.trim()}”` : ''}
+                  <p
+                    className="text-xs font-medium text-muted"
+                    role={loading ? 'status' : undefined}
+                  >
+                    {loading ? (
+                      'Loading boards…'
+                    ) : (
+                      <>
+                        {visibleBoards.length} {visibleBoards.length === 1 ? 'board' : 'boards'}
+                        {query ? ` matching “${query.trim()}”` : ''}
+                      </>
+                    )}
                   </p>
-                  {section === 'recent' && sectionCounts.recent > visibleBoards.length && (
-                    <button
-                      type="button"
-                      onClick={() => onSectionChange('all')}
-                      className={`text-xs font-semibold text-accent hover:underline ${focusRing}`}
-                    >
-                      View all boards
-                    </button>
-                  )}
+                  {!loading &&
+                    section === 'recent' &&
+                    sectionCounts.recent > visibleBoards.length && (
+                      <button
+                        type="button"
+                        onClick={() => onSectionChange('all')}
+                        className={`text-xs font-semibold text-accent hover:underline ${focusRing}`}
+                      >
+                        View all boards
+                      </button>
+                    )}
                 </div>
 
-                {visibleBoards.length > 0 ? (
-                  <div
-                    className={
-                      view === 'grid'
-                        ? 'mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
-                        : 'mt-4 space-y-2'
-                    }
-                  >
-                    {visibleBoards.map((board) => (
-                      <BoardItem
-                        key={board.id}
-                        board={board}
-                        view={view}
-                        onOpen={() => onOpenBoard(board.id)}
-                        onToggleFavourite={() => onToggleFavorite(board.id, !board.isFavorite)}
-                        onTrash={() => onTrashBoard(board.id)}
-                        onRestore={() => onRestoreBoard(board.id)}
-                        onDelete={() => {
-                          if (
-                            window.confirm(
-                              `Delete “${board.title}” permanently? This cannot be undone.`
-                            )
-                          ) {
-                            onDeleteBoard(board.id)
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid min-h-72 place-items-center rounded-xl border border-dashed border-line bg-surface/45 px-5 py-12 text-center">
-                    <div className="max-w-sm">
-                      <span className="mx-auto grid size-11 place-items-center rounded-xl bg-accent-soft text-accent">
-                        {query ? (
+                <div role="region" aria-label="Board list" aria-busy={loading}>
+                  {loading ? (
+                    <div
+                      className={
+                        view === 'grid'
+                          ? 'mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+                          : 'mt-4 space-y-2'
+                      }
+                      aria-hidden="true"
+                    >
+                      {Array.from({ length: view === 'grid' ? 6 : 4 }, (_, index) => (
+                        <BoardSkeleton key={index} view={view} />
+                      ))}
+                    </div>
+                  ) : visibleBoards.length > 0 ? (
+                    <div
+                      className={
+                        view === 'grid'
+                          ? 'mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+                          : 'mt-4 space-y-2'
+                      }
+                    >
+                      {visibleBoards.map((board) => (
+                        <BoardItem
+                          key={board.id}
+                          board={board}
+                          view={view}
+                          onOpen={() => onOpenBoard(board.id)}
+                          onToggleFavourite={() => onToggleFavorite(board.id, !board.isFavorite)}
+                          onTrash={() => onTrashBoard(board.id)}
+                          onRestore={() => onRestoreBoard(board.id)}
+                          onRequestDelete={() => setDeleteCandidate(board)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      className="mt-5 bg-surface/45"
+                      icon={
+                        query ? (
                           <Search size={19} />
                         ) : section === 'trash' ? (
                           <Trash2 size={19} />
@@ -767,38 +900,68 @@ export function Dashboard({
                           <Star size={19} />
                         ) : (
                           <LayoutGrid size={19} />
-                        )}
-                      </span>
-                      <h2 className="mt-4 text-base font-semibold">{emptyTitle}</h2>
-                      <p className="mt-1.5 text-sm leading-6 text-muted">{emptyDescription}</p>
-                      {query ? (
-                        <button
-                          type="button"
-                          onClick={() => onQueryChange('')}
-                          className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-soft ${focusRing}`}
-                        >
-                          Clear search
-                        </button>
-                      ) : (
-                        (section === 'recent' || section === 'all') && (
-                          <button
-                            type="button"
-                            onClick={openCreateForm}
-                            className="primary-button mt-5"
-                          >
-                            <Plus size={16} />
-                            Create board
-                          </button>
                         )
-                      )}
-                    </div>
-                  </div>
-                )}
+                      }
+                      title={emptyTitle}
+                      description={emptyDescription}
+                      primaryAction={
+                        query ? (
+                          <Button variant="quiet" onClick={() => onQueryChange('')}>
+                            Clear search
+                          </Button>
+                        ) : section === 'recent' || section === 'all' ? (
+                          <Button
+                            variant="primary"
+                            leadingIcon={<Plus size={16} />}
+                            onClick={openCreateForm}
+                          >
+                            Create board
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  )}
+                </div>
               </>
             )}
           </div>
         </section>
       </div>
+      {deleteCandidate && (
+        <Dialog
+          open
+          title="Delete board permanently?"
+          description="This action cannot be undone."
+          initialFocusRef={deleteCancelRef}
+          onClose={() => setDeleteCandidate(null)}
+          footer={
+            <>
+              <Button
+                ref={deleteCancelRef}
+                variant="quiet"
+                onClick={() => setDeleteCandidate(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                leadingIcon={<Trash2 size={15} />}
+                onClick={() => {
+                  const boardId = deleteCandidate.id
+                  setDeleteCandidate(null)
+                  onDeleteBoard(boardId)
+                }}
+              >
+                Delete permanently
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-muted">
+            “{deleteCandidate.title}” will be removed from this workspace and cannot be restored.
+          </p>
+        </Dialog>
+      )}
     </main>
   )
 }

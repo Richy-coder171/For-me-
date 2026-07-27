@@ -31,8 +31,7 @@ import {
   Undo2,
   Ungroup,
   Unlock,
-  Video,
-  X
+  Video
 } from 'lucide-react'
 import {
   BreakPointProvider,
@@ -57,9 +56,12 @@ import type { BoardFile, OpenBoard } from '../../shared/schemas/board'
 import { MAX_IMAGE_TRANSFER_BYTES, type ImportedMedia } from '../../shared/schemas/media'
 import type { AppSettings } from '../../shared/schemas/settings'
 import { BrandMark } from '../components/BrandMark'
+import { Button, Dialog, Feedback } from '../components/ui'
+import type { SettingsSection } from '../components/SettingsPanel'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
-import { searchBoard, type BoardSearchType } from './boardSearch'
+import { searchBoard, type BoardSearchResult, type BoardSearchType } from './boardSearch'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
+import { describeSaveFailure, type SaveFailure } from './saveFailure'
 import {
   CN_CHECKLIST_TYPE,
   CN_EMBEDDED_VIDEO_TYPE,
@@ -78,6 +80,7 @@ import {
   createCNLinkShape,
   createCNTimestampNoteShape,
   createNoteShape,
+  formatTimestamp,
   getNextShapePosition,
   isCNChecklistShape,
   isCNEmbeddedVideoShape,
@@ -90,6 +93,7 @@ import {
   onVideoShapeEvent,
   parseEmbeddedVideoUrl,
   requestTimestampNote,
+  requestVideoSeek,
   type CNChecklistShape,
   type CNEmbeddedVideoShape,
   type CNFileShape,
@@ -106,6 +110,7 @@ const CANVAS_SHAPE_UTILS = [...defaultShapeUtils, ...canvasShapeUtils] as const
 const CANVAS_TOOLS = [...defaultTools, ...defaultShapeTools] as const
 const CANVAS_CLIPBOARD_MIME = 'application/x-canvasnote-tldraw'
 const MAX_CANVAS_CLIPBOARD_CHARS = 5_000_000
+const COMPACT_PROPERTIES_QUERY = '(max-width: 1079px)'
 
 const BACKGROUNDS: Array<{ value: CNTextBackground; label: string; color: string }> = [
   { value: 'paper', label: 'Paper', color: '#fffefa' },
@@ -122,8 +127,11 @@ interface BoardEditorProps {
   stored: OpenBoard
   onBack: () => Promise<void>
   onSave: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
+  onClearError: () => void
   settings: AppSettings
-  onOpenSettings: () => void
+  onOpenSettings: (section?: SettingsSection) => void
+  onOpenTemplates: () => Promise<void>
+  onToggleTheme: () => void
   onRegisterClosePreparation: (handler: () => Promise<void>) => () => void
 }
 
@@ -186,6 +194,13 @@ function canvasNoteId(shape: TLShape): string {
   return typeof persistedId === 'string' && shape.id === `shape:${persistedId}`
     ? persistedId
     : shape.id.replace(/^shape:/, '')
+}
+
+function boxDimensions(shape: TLShape): { w: number; h: number } | null {
+  const props = shape.props as { w?: unknown; h?: unknown }
+  return typeof props.w === 'number' && typeof props.h === 'number'
+    ? { w: props.w, h: props.h }
+    : null
 }
 
 function parseTags(value: string): string[] {
@@ -267,6 +282,123 @@ function HighlightedText({ text, query }: { text: string; query: string }): Reac
   )
 }
 
+export type BoardCommandId =
+  | 'board-title'
+  | 'create-note'
+  | 'import-image'
+  | 'import-video'
+  | 'open-settings'
+  | 'open-templates'
+  | 'export-board'
+  | 'toggle-theme'
+  | 'show-shortcuts'
+
+export interface BoardPaletteCommand {
+  id: BoardCommandId
+  title: string
+  description: string
+  category: string
+}
+
+const BOARD_COMMANDS: ReadonlyArray<BoardPaletteCommand & { keywords: string }> = [
+  {
+    id: 'create-note',
+    title: 'Create note',
+    description: 'Add a note to this board',
+    category: 'Create',
+    keywords: 'new add sticky'
+  },
+  {
+    id: 'import-image',
+    title: 'Import image',
+    description: 'Copy an image into the workspace',
+    category: 'Create',
+    keywords: 'add photo picture'
+  },
+  {
+    id: 'import-video',
+    title: 'Import video',
+    description: 'Copy a local video into the workspace',
+    category: 'Create',
+    keywords: 'add local media'
+  },
+  {
+    id: 'open-settings',
+    title: 'Open Settings',
+    description: 'Change CanvasNote preferences',
+    category: 'Navigate',
+    keywords: 'preferences options'
+  },
+  {
+    id: 'open-templates',
+    title: 'Open Templates',
+    description: 'Return to the template browser',
+    category: 'Navigate',
+    keywords: 'dashboard gallery'
+  },
+  {
+    id: 'export-board',
+    title: 'Export board',
+    description: 'Export JSON, PNG, or PDF',
+    category: 'Board actions',
+    keywords: 'download png pdf json'
+  },
+  {
+    id: 'toggle-theme',
+    title: 'Toggle theme',
+    description: 'Switch between light and dark appearance',
+    category: 'Appearance',
+    keywords: 'dark light color mode'
+  },
+  {
+    id: 'show-shortcuts',
+    title: 'Show keyboard shortcuts',
+    description: 'Open the keyboard shortcut reference',
+    category: 'Help',
+    keywords: 'keys hotkeys help'
+  }
+]
+
+export function boardPaletteCommands(
+  boardTitle: string,
+  query: string,
+  recentIds: readonly BoardCommandId[] = []
+): BoardPaletteCommand[] {
+  const commands: Array<BoardPaletteCommand & { keywords: string }> = [
+    {
+      id: 'board-title',
+      title: boardTitle,
+      description: 'Edit current board title',
+      category: 'Current board',
+      keywords: 'board title rename current'
+    },
+    ...BOARD_COMMANDS
+  ]
+  const normalized = query.trim().toLocaleLowerCase()
+  const matching = normalized
+    ? commands.filter(({ title, description, keywords }) =>
+        `${title} ${description} ${keywords}`.toLocaleLowerCase().includes(normalized)
+      )
+    : commands
+  if (normalized || recentIds.length === 0) return matching
+
+  const recent = recentIds.flatMap((id) => {
+    const command = matching.find((candidate) => candidate.id === id)
+    return command ? [{ ...command, category: 'Recent' }] : []
+  })
+  const recentSet = new Set(recentIds)
+  return [...recent, ...matching.filter(({ id }) => !recentSet.has(id))]
+}
+
+type BoardPaletteEntry =
+  | { kind: 'command'; command: BoardPaletteCommand; category: string }
+  | { kind: 'object'; result: BoardSearchResult; resultIndex: number; category: 'Objects' }
+
+interface BoardPaletteGroup {
+  category: string
+  entries: Array<{ entry: BoardPaletteEntry; index: number }>
+}
+
 function ToolButton({
   label,
   shortcut,
@@ -294,6 +426,165 @@ function ToolButton({
     >
       {children}
     </button>
+  )
+}
+
+interface BoardAddMenuProps {
+  importing: 'image' | 'video' | 'file' | null
+  onAttachFile: () => void
+  onAddLink: () => void
+  onEmbedVideo: () => void
+}
+
+export function BoardAddMenu({
+  importing,
+  onAttachFile,
+  onAddLink,
+  onEmbedVideo
+}: BoardAddMenuProps): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const pendingFocusRef = useRef(0)
+
+  const focusItem = useCallback((start: number, direction: 1 | -1 = 1) => {
+    const items = itemRefs.current
+    for (let offset = 0; offset < items.length; offset += 1) {
+      const index = (start + offset * direction + items.length) % items.length
+      const item = items[index]
+      if (item && !item.disabled) {
+        item.focus()
+        return
+      }
+    }
+  }, [])
+
+  const openMenu = useCallback((focusIndex = 0) => {
+    pendingFocusRef.current = focusIndex
+    setOpen(true)
+  }, [])
+
+  const closeMenu = useCallback((restoreFocus = false) => {
+    setOpen(false)
+    if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    focusItem(pendingFocusRef.current, pendingFocusRef.current === 2 ? -1 : 1)
+    const closeOnOutsidePointer = (event: PointerEvent): void => {
+      if (!containerRef.current?.contains(event.target as Node)) closeMenu()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
+  }, [closeMenu, focusItem, open])
+
+  const handleItemKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ): void => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        focusItem(index + 1)
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        focusItem(index - 1, -1)
+        break
+      case 'Home':
+        event.preventDefault()
+        focusItem(0)
+        break
+      case 'End':
+        event.preventDefault()
+        focusItem(itemRefs.current.length - 1, -1)
+        break
+      case 'Escape':
+        event.preventDefault()
+        closeMenu(true)
+        break
+    }
+  }
+
+  const run = (action: () => void, restoreFocus = false): void => {
+    closeMenu(restoreFocus)
+    action()
+  }
+
+  return (
+    <div className="canvas-add-menu" ref={containerRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`canvas-tool ${open ? 'is-active' : ''}`}
+        aria-label="Add"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? 'canvas-add-menu' : undefined}
+        title="Add file, link, or embedded video"
+        onClick={() => (open ? closeMenu(true) : openMenu())}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            openMenu(event.key === 'ArrowUp' ? 2 : 0)
+          }
+        }}
+      >
+        <Plus size={18} />
+      </button>
+      {open && (
+        <div
+          id="canvas-add-menu"
+          className="canvas-add-popover"
+          role="menu"
+          aria-label="Add to board"
+        >
+          <button
+            ref={(element) => {
+              itemRefs.current[0] = element
+            }}
+            type="button"
+            role="menuitem"
+            disabled={importing !== null}
+            onKeyDown={(event) => handleItemKeyDown(event, 0)}
+            onClick={() => run(onAttachFile, true)}
+          >
+            {importing === 'file' ? (
+              <LoaderCircle className="animate-spin" size={16} />
+            ) : (
+              <Paperclip size={16} />
+            )}
+            Attach file
+          </button>
+          <button
+            ref={(element) => {
+              itemRefs.current[1] = element
+            }}
+            type="button"
+            role="menuitem"
+            onKeyDown={(event) => handleItemKeyDown(event, 1)}
+            onClick={() => run(onAddLink)}
+          >
+            <Globe2 size={16} />
+            Add link card
+          </button>
+          <button
+            ref={(element) => {
+              itemRefs.current[2] = element
+            }}
+            type="button"
+            role="menuitem"
+            onKeyDown={(event) => handleItemKeyDown(event, 2)}
+            onClick={() => run(onEmbedVideo)}
+          >
+            <MonitorPlay size={16} />
+            Embed YouTube or Vimeo video
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -611,20 +902,32 @@ export function BoardEditor({
   stored,
   onBack,
   onSave,
+  onClearError,
   settings,
   onOpenSettings,
+  onOpenTemplates,
+  onToggleTheme,
   onRegisterClosePreparation
 }: BoardEditorProps): React.JSX.Element {
   const [store] = useState(() => createTLStore({ shapeUtils: CANVAS_SHAPE_UTILS }))
   const [editor, setEditor] = useState<Editor | null>(null)
   const [title, setTitle] = useState(stored.board.title)
   const [saveState, setSaveState] = useState<SaveState>('saved')
+  const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null)
+  const [recoveryExporting, setRecoveryExporting] = useState(false)
+  const [reloadDialogOpen, setReloadDialogOpen] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [selectedShape, setSelectedShape] = useState<TLShape | null>(null)
   const [selectedShapeIds, setSelectedShapeIds] = useState<TLShapeId[]>([])
   const [activeTool, setActiveTool] = useState('select')
   const [zoom, setZoom] = useState(stored.board.camera.zoom)
   const [revision, setRevision] = useState(stored.revision)
-  const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [propertiesOpen, setPropertiesOpen] = useState(
+    () => !(window.matchMedia?.(COMPACT_PROPERTIES_QUERY).matches ?? false)
+  )
+  const [hasCanvasObjects, setHasCanvasObjects] = useState(
+    stored.board.nodes.length > 0 || stored.board.connections.length > 0
+  )
   const [notice, setNotice] = useState<string | null>(null)
   const [importing, setImporting] = useState<'image' | 'video' | 'file' | null>(null)
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
@@ -644,18 +947,18 @@ export function BoardEditor({
   const [searchTag, setSearchTag] = useState('')
   const [activeSearchIndex, setActiveSearchIndex] = useState(0)
   const [searchBoardSnapshot, setSearchBoardSnapshot] = useState(stored.board)
+  const [recentCommandIds, setRecentCommandIds] = useState<BoardCommandId[]>([])
   const editorRef = useRef<Editor | null>(null)
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
   const revisionRef = useRef(stored.revision)
+  const propertiesPreferenceRef = useRef(true)
 
-  const saveCurrentBoard = useCallback(async (): Promise<void> => {
+  const serializeCurrentBoard = useCallback(() => {
     const currentEditor = editorRef.current
-    if (!currentEditor) return
-
-    setSaveState('saving')
+    if (!currentEditor) return null
     const camera = currentEditor.getCamera()
-    const result = tldrawToBoard(
+    return tldrawToBoard(
       {
         ...boardRef.current,
         title: titleRef.current.trim() || boardRef.current.title
@@ -663,11 +966,26 @@ export function BoardEditor({
       currentEditor.store.allRecords(),
       { x: camera.x, y: camera.y, zoom: camera.z }
     )
+  }, [])
+
+  const saveCurrentBoard = useCallback(async (): Promise<void> => {
+    let result = serializeCurrentBoard()
+    if (!result) return
+
+    setSaveState('saving')
+    if (result.diagnostics.length > 0) {
+      // tldraw can publish an arrow just before its terminal bindings; read once after it settles.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      result = serializeCurrentBoard() ?? result
+    }
 
     if (result.diagnostics.length > 0) {
+      const error = new Error(
+        `Save blocked: ${result.diagnostics[0]?.message ?? 'unsupported canvas object.'}`
+      )
       setSaveState('error')
-      setNotice(`Save blocked: ${result.diagnostics[0]?.message ?? 'unsupported canvas object.'}`)
-      throw new Error('CanvasNote refused a lossy board save.')
+      setSaveFailure(describeSaveFailure(error))
+      throw error
     }
 
     try {
@@ -678,11 +996,14 @@ export function BoardEditor({
       titleRef.current = saved.board.title
       setTitle(saved.board.title)
       setSaveState('saved')
+      setSaveFailure(null)
+      onClearError()
     } catch (error) {
       setSaveState('error')
+      setSaveFailure(describeSaveFailure(error))
       throw error
     }
-  }, [onSave])
+  }, [onClearError, onSave, serializeCurrentBoard])
 
   const [saveQueue] = useState<AutosaveQueue>(() =>
     createAutosaveQueue(async () => undefined, settings.autosaveDelayMs)
@@ -702,9 +1023,21 @@ export function BoardEditor({
   )
 
   const markDirty = useCallback(() => {
-    setSaveState((current) => (current === 'saving' ? current : 'dirty'))
+    setSaveState((current) => (current === 'saving' || current === 'error' ? current : 'dirty'))
     saveQueue.schedule()
   }, [saveQueue])
+
+  const toggleProperties = useCallback(() => {
+    setPropertiesOpen((open) => {
+      propertiesPreferenceRef.current = !open
+      return !open
+    })
+  }, [])
+
+  const hideProperties = useCallback(() => {
+    propertiesPreferenceRef.current = false
+    setPropertiesOpen(false)
+  }, [])
 
   const handleMount = useCallback((mountedEditor: Editor) => {
     const loaded = boardToTldraw(boardRef.current, mountedEditor.getCurrentPageId())
@@ -738,6 +1071,7 @@ export function BoardEditor({
       setSelectedShape(selection.length === 1 ? editor.getOnlySelectedShape() : null)
       setActiveTool(editor.getCurrentToolId())
       setZoom(editor.getZoomLevel())
+      setHasCanvasObjects(editor.getCurrentPageShapes().length > 0)
       const camera = editor.getCamera()
       if (
         camera.x !== previousCamera.x ||
@@ -775,6 +1109,16 @@ export function BoardEditor({
     window.addEventListener('blur', flushOnBlur)
     return () => window.removeEventListener('blur', flushOnBlur)
   }, [saveQueue])
+
+  useEffect(() => {
+    const media = window.matchMedia?.(COMPACT_PROPERTIES_QUERY)
+    if (!media) return
+    const applyCompactLayout = (event: MediaQueryListEvent): void => {
+      setPropertiesOpen(event.matches ? false : propertiesPreferenceRef.current)
+    }
+    media.addEventListener('change', applyCompactLayout)
+    return () => media.removeEventListener('change', applyCompactLayout)
+  }, [])
 
   const createFrame = useCallback(() => {
     if (!editor) return
@@ -964,6 +1308,41 @@ export function BoardEditor({
     [searchBoardSnapshot, searchQuery, searchTag, searchType]
   )
 
+  const commandResults = useMemo(
+    () =>
+      searchType === 'all' && !searchTag.trim()
+        ? boardPaletteCommands(title.trim() || 'Untitled board', searchQuery, recentCommandIds)
+        : [],
+    [recentCommandIds, searchQuery, searchTag, searchType, title]
+  )
+
+  const paletteEntries = useMemo<BoardPaletteEntry[]>(
+    () => [
+      ...commandResults.map((command): BoardPaletteEntry => ({
+        kind: 'command',
+        command,
+        category: command.category
+      })),
+      ...searchResults.map((result, resultIndex): BoardPaletteEntry => ({
+        kind: 'object',
+        result,
+        resultIndex,
+        category: 'Objects'
+      }))
+    ],
+    [commandResults, searchResults]
+  )
+
+  const paletteGroups = useMemo<BoardPaletteGroup[]>(() => {
+    const groups: BoardPaletteGroup[] = []
+    paletteEntries.forEach((entry, index) => {
+      const last = groups.at(-1)
+      if (last?.category === entry.category) last.entries.push({ entry, index })
+      else groups.push({ category: entry.category, entries: [{ entry, index }] })
+    })
+    return groups
+  }, [paletteEntries])
+
   const focusSearchResult = useCallback(
     (index: number) => {
       if (!editor) return
@@ -978,6 +1357,68 @@ export function BoardEditor({
       setSearchOpen(false)
     },
     [editor, searchResults]
+  )
+
+  const runPaletteCommand = useCallback(
+    (command: BoardPaletteCommand) => {
+      setRecentCommandIds((recent) =>
+        [command.id, ...recent.filter((id) => id !== command.id)].slice(0, 4)
+      )
+      setSearchOpen(false)
+
+      const afterClose = (action: () => void): void => {
+        requestAnimationFrame(action)
+      }
+      switch (command.id) {
+        case 'board-title':
+          afterClose(() => {
+            document.querySelector<HTMLInputElement>('[aria-label="Board title"]')?.focus()
+          })
+          break
+        case 'create-note':
+          afterClose(() => {
+            if (editor) createNoteShape(editor)
+          })
+          break
+        case 'import-image':
+          afterClose(() => void importMedia('image'))
+          break
+        case 'import-video':
+          afterClose(() => void importMedia('video'))
+          break
+        case 'open-settings':
+          afterClose(() => onOpenSettings())
+          break
+        case 'open-templates':
+          afterClose(() => {
+            void saveQueue
+              .flush()
+              .then(onOpenTemplates)
+              .catch(() => undefined)
+          })
+          break
+        case 'export-board':
+          afterClose(() => setExportDialogOpen(true))
+          break
+        case 'toggle-theme':
+          onToggleTheme()
+          break
+        case 'show-shortcuts':
+          afterClose(() => onOpenSettings('shortcuts'))
+          break
+      }
+    },
+    [editor, importMedia, onOpenSettings, onOpenTemplates, onToggleTheme, saveQueue]
+  )
+
+  const activatePaletteEntry = useCallback(
+    (index: number) => {
+      const entry = paletteEntries[index]
+      if (!entry) return
+      if (entry.kind === 'command') runPaletteCommand(entry.command)
+      else focusSearchResult(entry.resultIndex)
+    },
+    [focusSearchResult, paletteEntries, runPaletteCommand]
   )
 
   useEffect(() => {
@@ -1105,6 +1546,56 @@ export function BoardEditor({
     selectedShape && isCNEmbeddedVideoShape(selectedShape) ? selectedShape : null
   const timestampShape =
     selectedShape && isCNTimestampNoteShape(selectedShape) ? selectedShape : null
+  const selectedVideoShape = localVideoShape ?? embeddedVideoShape
+  const selectedVideoNodeId = selectedVideoShape ? canvasNoteId(selectedVideoShape) : null
+  const videoTimestampNotes = useValue(
+    'Selected video timestamp notes',
+    () =>
+      editor && selectedVideoNodeId
+        ? editor
+            .getCurrentPageShapes()
+            .filter(
+              (shape): shape is CNTimestampNoteShape =>
+                isCNTimestampNoteShape(shape) && shape.props.videoNodeId === selectedVideoNodeId
+            )
+            .sort(
+              (left, right) =>
+                left.props.timestampSeconds - right.props.timestampSeconds ||
+                left.id.localeCompare(right.id)
+            )
+        : [],
+    [editor, selectedVideoNodeId]
+  )
+  const selectedBounds = editor && selectedShape ? editor.getShapePageBounds(selectedShape) : null
+  const selectedDimensions = selectedShape ? boxDimensions(selectedShape) : null
+
+  const updateSelectedPosition = (axis: 'x' | 'y', value: number): void => {
+    if (!editor || !selectedShape || !selectedBounds || selectedShape.isLocked) return
+    if (!Number.isFinite(value)) return
+    editor.nudgeShapes([selectedShape.id], {
+      x: axis === 'x' ? value - selectedBounds.x : 0,
+      y: axis === 'y' ? value - selectedBounds.y : 0
+    })
+  }
+
+  const updateSelectedSize = (axis: 'w' | 'h', value: number): void => {
+    if (!editor || !selectedShape || !selectedDimensions || selectedShape.isLocked) return
+    if (!Number.isFinite(value) || value <= 0) return
+    const transform = editor.getShapePageTransform(selectedShape)
+    if (!transform) return
+    editor.resizeShape(
+      selectedShape,
+      {
+        x: axis === 'w' ? value / selectedDimensions.w : 1,
+        y: axis === 'h' ? value / selectedDimensions.h : 1
+      },
+      {
+        scaleOrigin: transform.point(),
+        scaleAxisRotation: transform.rotation(),
+        dragHandle: 'bottom_right'
+      }
+    )
+  }
 
   const updateImageShape = useCallback(
     (
@@ -1275,6 +1766,72 @@ export function BoardEditor({
     void saveQueue.flush().catch(() => undefined)
   }
 
+  const exportRecoveryCopy = async (): Promise<void> => {
+    if (recoveryExporting) return
+    const result = serializeCurrentBoard()
+    if (!result || result.diagnostics.length > 0) {
+      setNotice(
+        'CanvasNote cannot create a complete recovery copy while unsupported objects remain.'
+      )
+      return
+    }
+
+    setRecoveryExporting(true)
+    try {
+      const saved = await window.canvasNote.export.json(result.board)
+      if (saved) setNotice('Recovery copy exported.')
+    } catch {
+      setNotice('CanvasNote could not export the recovery copy.')
+    } finally {
+      setRecoveryExporting(false)
+    }
+  }
+
+  const reloadDiskVersion = async (): Promise<void> => {
+    if (!editor || reloading) return
+    setReloading(true)
+    try {
+      const storedBoard = await window.canvasNote.boards.open(boardRef.current.id)
+      const loaded = boardToTldraw(storedBoard.board, editor.getCurrentPageId())
+      saveQueue.cancel()
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.remove(
+          editor.store
+            .allRecords()
+            .filter(({ typeName }) => typeName === 'shape' || typeName === 'binding')
+            .map(({ id }) => id)
+        )
+        editor.store.put(loaded.records)
+      })
+      editor.setCamera(
+        { x: loaded.camera.x, y: loaded.camera.y, z: loaded.camera.zoom },
+        { immediate: true }
+      )
+      editor.clearHistory()
+      boardRef.current = storedBoard.board
+      revisionRef.current = storedBoard.revision
+      titleRef.current = storedBoard.board.title
+      setTitle(storedBoard.board.title)
+      setRevision(storedBoard.revision)
+      setSearchBoardSnapshot(storedBoard.board)
+      setSelectedShape(null)
+      setSelectedShapeIds([])
+      setSaveState('saved')
+      setSaveFailure(null)
+      setReloadDialogOpen(false)
+      setNotice(
+        loaded.diagnostics.length
+          ? `${loaded.diagnostics.length} board object(s) could not be shown after reloading.`
+          : 'Reloaded the version saved on disk.'
+      )
+      onClearError()
+    } catch {
+      setNotice('CanvasNote could not reload the board from disk.')
+    } finally {
+      setReloading(false)
+    }
+  }
+
   const exportJson = async (): Promise<void> => {
     if (exporting) return
     setExporting(true)
@@ -1409,6 +1966,28 @@ export function BoardEditor({
           )}
           <span className="hidden sm:inline">{saveLabel(saveState)}</span>
         </div>
+        <div className="canvas-history-actions" role="group" aria-label="Edit history">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Undo"
+            title="Undo (Ctrl+Z)"
+            disabled={!editor?.canUndo()}
+            onClick={() => editor?.undo()}
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Redo"
+            title="Redo (Ctrl+Shift+Z)"
+            disabled={!editor?.canRedo()}
+            onClick={() => editor?.redo()}
+          >
+            <Redo2 size={16} />
+          </button>
+        </div>
         <button
           type="button"
           className="icon-button"
@@ -1442,7 +2021,7 @@ export function BoardEditor({
           className="icon-button"
           aria-label="Open settings"
           title="Settings"
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
         >
           <Settings2 size={16} />
         </button>
@@ -1451,11 +2030,46 @@ export function BoardEditor({
           className="icon-button"
           aria-label={propertiesOpen ? 'Hide properties' : 'Show properties'}
           aria-pressed={propertiesOpen}
-          onClick={() => setPropertiesOpen((open) => !open)}
+          onClick={toggleProperties}
         >
           {propertiesOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
         </button>
       </header>
+
+      {saveFailure && (
+        <div className="canvas-save-failure">
+          <Feedback
+            tone={saveFailure.kind === 'conflict' ? 'warning' : 'danger'}
+            title={saveFailure.title}
+            message={saveFailure.message}
+            actions={
+              <>
+                <Button size="small" variant="primary" onClick={saveNow}>
+                  Retry
+                </Button>
+                {saveFailure.kind !== 'validation' && (
+                  <Button
+                    size="small"
+                    loading={recoveryExporting}
+                    onClick={() => void exportRecoveryCopy()}
+                  >
+                    Export recovery copy
+                  </Button>
+                )}
+                {saveFailure.kind === 'conflict' && (
+                  <Button size="small" variant="quiet" onClick={() => setReloadDialogOpen(true)}>
+                    Reload disk version
+                  </Button>
+                )}
+                <details className="canvas-save-details">
+                  <summary>Technical details</summary>
+                  <code>{saveFailure.details}</code>
+                </details>
+              </>
+            }
+          />
+        </div>
+      )}
 
       <section className="relative flex min-h-0 flex-1">
         <div
@@ -1547,35 +2161,18 @@ export function BoardEditor({
                 <Video size={18} />
               )}
             </ToolButton>
-            <ToolButton
-              label="Embed YouTube or Vimeo video"
-              onClick={() => {
-                setEmbedError(null)
-                setEmbedDialogOpen(true)
-              }}
-            >
-              <MonitorPlay size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Add link card"
-              onClick={() => {
+            <BoardAddMenu
+              importing={importing}
+              onAttachFile={() => void importMedia('file')}
+              onAddLink={() => {
                 setLinkError(null)
                 setLinkDialogOpen(true)
               }}
-            >
-              <Globe2 size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Attach file"
-              disabled={importing !== null}
-              onClick={() => void importMedia('file')}
-            >
-              {importing === 'file' ? (
-                <LoaderCircle className="animate-spin" size={18} />
-              ) : (
-                <Paperclip size={18} />
-              )}
-            </ToolButton>
+              onEmbedVideo={() => {
+                setEmbedError(null)
+                setEmbedDialogOpen(true)
+              }}
+            />
             <ToolButton label="New frame" shortcut="F" onClick={createFrame}>
               <Frame size={18} />
             </ToolButton>
@@ -1587,26 +2184,15 @@ export function BoardEditor({
             >
               <Link2 size={18} />
             </ToolButton>
-            <span className="canvas-tool-divider" />
-            <ToolButton
-              label="Undo"
-              shortcut="Ctrl+Z"
-              disabled={!editor?.canUndo()}
-              onClick={() => editor?.undo()}
-            >
-              <Undo2 size={18} />
-            </ToolButton>
-            <ToolButton
-              label="Redo"
-              shortcut="Ctrl+Shift+Z"
-              disabled={!editor?.canRedo()}
-              onClick={() => editor?.redo()}
-            >
-              <Redo2 size={18} />
-            </ToolButton>
           </nav>
 
-          <div className="canvas-zoom" aria-label="Canvas zoom controls">
+          {editor && !hasCanvasObjects && (
+            <p className="canvas-empty-hint" role="status">
+              <strong>Start with a note.</strong> Press N or choose a tool on the left.
+            </p>
+          )}
+
+          <div className="canvas-zoom" role="group" aria-label="Canvas zoom controls">
             <button type="button" aria-label="Zoom out" onClick={() => editor?.zoomOut()}>
               <Minus size={15} />
             </button>
@@ -1652,7 +2238,7 @@ export function BoardEditor({
                 type="button"
                 className="canvas-panel-close"
                 aria-label="Hide properties"
-                onClick={() => setPropertiesOpen(false)}
+                onClick={hideProperties}
               >
                 <PanelRightClose size={16} />
               </button>
@@ -1688,365 +2274,523 @@ export function BoardEditor({
               </div>
             ) : (
               <div className="canvas-properties-body">
-                {textShape && (
-                  <>
-                    <fieldset className="canvas-property-group">
-                      <legend>Background</legend>
-                      <div className="flex flex-wrap gap-2">
-                        {BACKGROUNDS.map((background) => (
+                <details className="canvas-property-section" open>
+                  <summary>General</summary>
+                  <div className="canvas-property-section-body">
+                    {selectedBounds && (
+                      <div className="canvas-transform-grid">
+                        <label>
+                          <span>X position</span>
+                          <input
+                            type="number"
+                            step={1}
+                            value={Number(selectedBounds.x.toFixed(1))}
+                            disabled={selectedShape.isLocked}
+                            onChange={(event) =>
+                              updateSelectedPosition('x', event.target.valueAsNumber)
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Y position</span>
+                          <input
+                            type="number"
+                            step={1}
+                            value={Number(selectedBounds.y.toFixed(1))}
+                            disabled={selectedShape.isLocked}
+                            onChange={(event) =>
+                              updateSelectedPosition('y', event.target.valueAsNumber)
+                            }
+                          />
+                        </label>
+                        {selectedDimensions && (
+                          <>
+                            <label>
+                              <span>Width</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={Number(selectedDimensions.w.toFixed(1))}
+                                disabled={selectedShape.isLocked}
+                                onChange={(event) =>
+                                  updateSelectedSize('w', event.target.valueAsNumber)
+                                }
+                              />
+                            </label>
+                            <label>
+                              <span>Height</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={Number(selectedDimensions.h.toFixed(1))}
+                                disabled={selectedShape.isLocked}
+                                onChange={(event) =>
+                                  updateSelectedSize('h', event.target.valueAsNumber)
+                                }
+                              />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </details>
+
+                {(textShape ||
+                  imageShape ||
+                  fileShape ||
+                  linkShape ||
+                  localVideoShape ||
+                  embeddedVideoShape ||
+                  timestampShape) && (
+                  <details className="canvas-property-section" open>
+                    <summary>
+                      {textShape
+                        ? 'Appearance'
+                        : timestampShape
+                          ? 'Timestamp'
+                          : localVideoShape || embeddedVideoShape
+                            ? 'Media and timestamps'
+                            : 'Content and media'}
+                    </summary>
+                    <div className="canvas-property-section-body">
+                      {textShape && (
+                        <>
+                          <fieldset className="canvas-property-group">
+                            <legend>Background</legend>
+                            <div className="flex flex-wrap gap-2">
+                              {BACKGROUNDS.map((background) => (
+                                <button
+                                  type="button"
+                                  key={background.value}
+                                  className={`canvas-color-chip ${textShape.props.background === background.value ? 'is-active' : ''}`}
+                                  style={{ background: background.color }}
+                                  title={background.label}
+                                  aria-label={`${background.label} background`}
+                                  aria-pressed={textShape.props.background === background.value}
+                                  onClick={() => updateTextShape({ background: background.value })}
+                                />
+                              ))}
+                            </div>
+                          </fieldset>
+
+                          <label className="canvas-property-group">
+                            <span>Text color</span>
+                            <input
+                              type="color"
+                              value={textShape.props.textColor}
+                              onChange={(event) =>
+                                updateTextShape({ textColor: event.target.value })
+                              }
+                            />
+                          </label>
+
+                          <label className="canvas-property-group">
+                            <span>Font size</span>
+                            <select
+                              value={textShape.props.fontSize}
+                              onChange={(event) =>
+                                updateTextShape({ fontSize: Number(event.target.value) })
+                              }
+                            >
+                              {[12, 14, 16, 18, 24, 32].map((size) => (
+                                <option key={size} value={size}>
+                                  {size}px
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <fieldset className="canvas-property-group">
+                            <legend>Alignment</legend>
+                            <div className="canvas-segmented-control">
+                              {(['left', 'center', 'right'] as const).map((alignment) => (
+                                <button
+                                  type="button"
+                                  key={alignment}
+                                  aria-pressed={textShape.props.textAlign === alignment}
+                                  className={
+                                    textShape.props.textAlign === alignment ? 'is-active' : ''
+                                  }
+                                  onClick={() => updateTextShape({ textAlign: alignment })}
+                                >
+                                  {alignment}
+                                </button>
+                              ))}
+                            </div>
+                          </fieldset>
+
+                          <TagsField
+                            id={textShape.id}
+                            tags={textShape.props.tags}
+                            placeholder="research, ideas"
+                            onChange={(tags) => updateTextShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {imageShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={imageShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateImageShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Alternative text</span>
+                            <input
+                              type="text"
+                              value={imageShape.props.altText}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateImageShape({ altText: event.target.value })
+                              }
+                            />
+                          </label>
+                          <fieldset className="canvas-property-group">
+                            <legend>Fit</legend>
+                            <div className="canvas-segmented-control">
+                              {(['contain', 'cover'] as const).map((fit) => (
+                                <button
+                                  type="button"
+                                  key={fit}
+                                  aria-pressed={imageShape.props.fit === fit}
+                                  className={imageShape.props.fit === fit ? 'is-active' : ''}
+                                  onClick={() => updateImageShape({ fit })}
+                                >
+                                  {fit}
+                                </button>
+                              ))}
+                            </div>
+                          </fieldset>
+                          <TagsField
+                            id={imageShape.id}
+                            tags={imageShape.props.tags}
+                            placeholder="reference, visual"
+                            onChange={(tags) => updateImageShape({ tags })}
+                          />
                           <button
                             type="button"
-                            key={background.value}
-                            className={`canvas-color-chip ${textShape.props.background === background.value ? 'is-active' : ''}`}
-                            style={{ background: background.color }}
-                            title={background.label}
-                            aria-label={`${background.label} background`}
-                            aria-pressed={textShape.props.background === background.value}
-                            onClick={() => updateTextShape({ background: background.value })}
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('image')}
+                          >
+                            <ImagePlus size={15} /> Replace image file
+                          </button>
+                        </>
+                      )}
+
+                      {fileShape && (
+                        <>
+                          <div className="canvas-property-group">
+                            <span>File</span>
+                            <p className="m-0 break-all text-xs text-muted">
+                              {fileShape.props.filename}
+                            </p>
+                          </div>
+                          <TagsField
+                            id={fileShape.id}
+                            tags={fileShape.props.tags}
+                            placeholder="source, attachment"
+                            onChange={(tags) => updateFileShape({ tags })}
                           />
-                        ))}
-                      </div>
-                    </fieldset>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('file')}
+                          >
+                            <Paperclip size={15} /> Replace attached file
+                          </button>
+                        </>
+                      )}
 
-                    <label className="canvas-property-group">
-                      <span>Text color</span>
-                      <input
-                        type="color"
-                        value={textShape.props.textColor}
-                        onChange={(event) => updateTextShape({ textColor: event.target.value })}
-                      />
-                    </label>
+                      {linkShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Title</span>
+                            <input
+                              type="text"
+                              value={linkShape.props.title}
+                              maxLength={500}
+                              onChange={(event) => updateLinkShape({ title: event.target.value })}
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Description</span>
+                            <textarea
+                              value={linkShape.props.description}
+                              maxLength={4_000}
+                              rows={4}
+                              onChange={(event) =>
+                                updateLinkShape({ description: event.target.value })
+                              }
+                            />
+                          </label>
+                          <div className="canvas-property-group">
+                            <span>URL</span>
+                            <p className="m-0 break-all text-xs font-normal text-muted">
+                              {linkShape.props.url}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              void window.canvasNote.app.openExternal(linkShape.props.url)
+                            }
+                          >
+                            <Globe2 size={15} /> Open link in browser
+                          </button>
+                          <TagsField
+                            id={linkShape.id}
+                            tags={linkShape.props.tags}
+                            placeholder="source, website"
+                            onChange={(tags) => updateLinkShape({ tags })}
+                          />
+                        </>
+                      )}
 
-                    <label className="canvas-property-group">
-                      <span>Font size</span>
-                      <select
-                        value={textShape.props.fontSize}
-                        onChange={(event) =>
-                          updateTextShape({ fontSize: Number(event.target.value) })
+                      {localVideoShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={localVideoShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateLocalVideoShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Playback speed</span>
+                            <select
+                              value={localVideoShape.props.playbackRate}
+                              onChange={(event) =>
+                                updateLocalVideoShape({ playbackRate: Number(event.target.value) })
+                              }
+                            >
+                              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                                <option key={rate} value={rate}>
+                                  {rate}×
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              requestTimestampNote(
+                                canvasNoteId(localVideoShape),
+                                localVideoShape.id
+                              )
+                            }
+                          >
+                            <Clock3 size={15} /> Add note at current time
+                          </button>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            disabled={importing !== null}
+                            onClick={() => void replaceSelectedMedia('video')}
+                          >
+                            <Video size={15} /> Replace video file
+                          </button>
+                          <TagsField
+                            id={localVideoShape.id}
+                            tags={localVideoShape.props.tags}
+                            placeholder="interview, source"
+                            onChange={(tags) => updateLocalVideoShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {embeddedVideoShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Caption</span>
+                            <input
+                              type="text"
+                              value={embeddedVideoShape.props.caption}
+                              maxLength={2_000}
+                              onChange={(event) =>
+                                updateEmbeddedVideoShape({ caption: event.target.value })
+                              }
+                            />
+                          </label>
+                          <div className="canvas-property-group">
+                            <span>Source</span>
+                            <p className="m-0 break-all text-xs font-normal text-muted">
+                              {embeddedVideoShape.props.url}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="canvas-secondary-action"
+                            onClick={() =>
+                              requestTimestampNote(
+                                canvasNoteId(embeddedVideoShape),
+                                embeddedVideoShape.id
+                              )
+                            }
+                          >
+                            <Clock3 size={15} /> Add note at current time
+                          </button>
+                          <TagsField
+                            id={embeddedVideoShape.id}
+                            tags={embeddedVideoShape.props.tags}
+                            placeholder="video, reference"
+                            onChange={(tags) => updateEmbeddedVideoShape({ tags })}
+                          />
+                        </>
+                      )}
+
+                      {selectedVideoShape && selectedVideoNodeId && (
+                        <div className="canvas-property-group">
+                          <span>Timestamp notes</span>
+                          {videoTimestampNotes.length > 0 ? (
+                            <div className="canvas-timestamp-list">
+                              {videoTimestampNotes.map((note) => {
+                                const time = formatTimestamp(note.props.timestampSeconds)
+                                return (
+                                  <button
+                                    type="button"
+                                    key={note.id}
+                                    aria-label={`Go to timestamp ${time}`}
+                                    onClick={() => {
+                                      editor?.select(selectedVideoShape.id).zoomToSelection({
+                                        animation: { duration: 180 }
+                                      })
+                                      requestVideoSeek(
+                                        selectedVideoNodeId,
+                                        note.props.timestampSeconds
+                                      )
+                                    }}
+                                  >
+                                    <strong>{time}</strong>
+                                    <span>
+                                      {note.props.content.trim() || 'Untitled timestamp note'}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="canvas-property-empty">
+                              No timestamp notes for this video.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {timestampShape && (
+                        <>
+                          <label className="canvas-property-group">
+                            <span>Timestamp (seconds)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={604_800}
+                              step={0.1}
+                              value={timestampShape.props.timestampSeconds}
+                              onChange={(event) =>
+                                updateTimestampShape({
+                                  timestampSeconds: Math.min(
+                                    604_800,
+                                    Math.max(0, event.target.valueAsNumber || 0)
+                                  )
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="canvas-property-group">
+                            <span>Note</span>
+                            <textarea
+                              value={timestampShape.props.content}
+                              maxLength={100_000}
+                              rows={5}
+                              onChange={(event) =>
+                                updateTimestampShape({ content: event.target.value })
+                              }
+                            />
+                          </label>
+                          <fieldset className="canvas-property-group">
+                            <legend>Background</legend>
+                            <div className="flex flex-wrap gap-2">
+                              {BACKGROUNDS.map((background) => (
+                                <button
+                                  type="button"
+                                  key={background.value}
+                                  className={`canvas-color-chip ${timestampShape.props.background === background.value ? 'is-active' : ''}`}
+                                  style={{ background: background.color }}
+                                  aria-label={`${background.label} background`}
+                                  aria-pressed={
+                                    timestampShape.props.background === background.value
+                                  }
+                                  onClick={() =>
+                                    updateTimestampShape({ background: background.value })
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </fieldset>
+                          <TagsField
+                            id={timestampShape.id}
+                            tags={timestampShape.props.tags}
+                            placeholder="quote, insight"
+                            onChange={(tags) => updateTimestampShape({ tags })}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </details>
+                )}
+
+                <details className="canvas-property-section">
+                  <summary>Advanced</summary>
+                  <div className="canvas-property-section-body">
+                    <div className="canvas-property-actions">
+                      {selectedShape.type === 'group' && (
+                        <button
+                          type="button"
+                          onClick={() => editor?.ungroupShapes([selectedShape.id])}
+                        >
+                          <Ungroup size={15} /> Ungroup
+                        </button>
+                      )}
+                      <button type="button" onClick={() => editor?.toggleLock([selectedShape.id])}>
+                        {selectedShape.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                        {selectedShape.isLocked ? 'Unlock' : 'Lock'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          editor?.duplicateShapes([selectedShape.id], { x: 24, y: 24 })
                         }
                       >
-                        {[12, 14, 16, 18, 24, 32].map((size) => (
-                          <option key={size} value={size}>
-                            {size}px
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <fieldset className="canvas-property-group">
-                      <legend>Alignment</legend>
-                      <div className="canvas-segmented-control">
-                        {(['left', 'center', 'right'] as const).map((alignment) => (
-                          <button
-                            type="button"
-                            key={alignment}
-                            aria-pressed={textShape.props.textAlign === alignment}
-                            className={textShape.props.textAlign === alignment ? 'is-active' : ''}
-                            onClick={() => updateTextShape({ textAlign: alignment })}
-                          >
-                            {alignment}
-                          </button>
-                        ))}
-                      </div>
-                    </fieldset>
-
-                    <TagsField
-                      id={textShape.id}
-                      tags={textShape.props.tags}
-                      placeholder="research, ideas"
-                      onChange={(tags) => updateTextShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {imageShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={imageShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) => updateImageShape({ caption: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Alternative text</span>
-                      <input
-                        type="text"
-                        value={imageShape.props.altText}
-                        maxLength={2_000}
-                        onChange={(event) => updateImageShape({ altText: event.target.value })}
-                      />
-                    </label>
-                    <fieldset className="canvas-property-group">
-                      <legend>Fit</legend>
-                      <div className="canvas-segmented-control">
-                        {(['contain', 'cover'] as const).map((fit) => (
-                          <button
-                            type="button"
-                            key={fit}
-                            aria-pressed={imageShape.props.fit === fit}
-                            className={imageShape.props.fit === fit ? 'is-active' : ''}
-                            onClick={() => updateImageShape({ fit })}
-                          >
-                            {fit}
-                          </button>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <TagsField
-                      id={imageShape.id}
-                      tags={imageShape.props.tags}
-                      placeholder="reference, visual"
-                      onChange={(tags) => updateImageShape({ tags })}
-                    />
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('image')}
-                    >
-                      <ImagePlus size={15} /> Replace image file
-                    </button>
-                  </>
-                )}
-
-                {fileShape && (
-                  <>
-                    <div className="canvas-property-group">
-                      <span>File</span>
-                      <p className="m-0 break-all text-xs text-muted">{fileShape.props.filename}</p>
-                    </div>
-                    <TagsField
-                      id={fileShape.id}
-                      tags={fileShape.props.tags}
-                      placeholder="source, attachment"
-                      onChange={(tags) => updateFileShape({ tags })}
-                    />
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('file')}
-                    >
-                      <Paperclip size={15} /> Replace attached file
-                    </button>
-                  </>
-                )}
-
-                {linkShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Title</span>
-                      <input
-                        type="text"
-                        value={linkShape.props.title}
-                        maxLength={500}
-                        onChange={(event) => updateLinkShape({ title: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Description</span>
-                      <textarea
-                        value={linkShape.props.description}
-                        maxLength={4_000}
-                        rows={4}
-                        onChange={(event) => updateLinkShape({ description: event.target.value })}
-                      />
-                    </label>
-                    <div className="canvas-property-group">
-                      <span>URL</span>
-                      <p className="m-0 break-all text-xs font-normal text-muted">
-                        {linkShape.props.url}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() => void window.canvasNote.app.openExternal(linkShape.props.url)}
-                    >
-                      <Globe2 size={15} /> Open link in browser
-                    </button>
-                    <TagsField
-                      id={linkShape.id}
-                      tags={linkShape.props.tags}
-                      placeholder="source, website"
-                      onChange={(tags) => updateLinkShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {localVideoShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={localVideoShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) => updateLocalVideoShape({ caption: event.target.value })}
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Playback speed</span>
-                      <select
-                        value={localVideoShape.props.playbackRate}
-                        onChange={(event) =>
-                          updateLocalVideoShape({ playbackRate: Number(event.target.value) })
-                        }
+                        <Copy size={15} /> Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="is-danger"
+                        onClick={() => editor?.deleteShapes([selectedShape.id])}
                       >
-                        {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                          <option key={rate} value={rate}>
-                            {rate}×
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() =>
-                        requestTimestampNote(canvasNoteId(localVideoShape), localVideoShape.id)
-                      }
-                    >
-                      <Clock3 size={15} /> Add note at current time
-                    </button>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      disabled={importing !== null}
-                      onClick={() => void replaceSelectedMedia('video')}
-                    >
-                      <Video size={15} /> Replace video file
-                    </button>
-                    <TagsField
-                      id={localVideoShape.id}
-                      tags={localVideoShape.props.tags}
-                      placeholder="interview, source"
-                      onChange={(tags) => updateLocalVideoShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {embeddedVideoShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Caption</span>
-                      <input
-                        type="text"
-                        value={embeddedVideoShape.props.caption}
-                        maxLength={2_000}
-                        onChange={(event) =>
-                          updateEmbeddedVideoShape({ caption: event.target.value })
-                        }
-                      />
-                    </label>
-                    <div className="canvas-property-group">
-                      <span>Source</span>
-                      <p className="m-0 break-all text-xs font-normal text-muted">
-                        {embeddedVideoShape.props.url}
-                      </p>
+                        <Trash2 size={15} /> Delete
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="canvas-secondary-action"
-                      onClick={() =>
-                        requestTimestampNote(
-                          canvasNoteId(embeddedVideoShape),
-                          embeddedVideoShape.id
-                        )
-                      }
-                    >
-                      <Clock3 size={15} /> Add note at current time
-                    </button>
-                    <TagsField
-                      id={embeddedVideoShape.id}
-                      tags={embeddedVideoShape.props.tags}
-                      placeholder="video, reference"
-                      onChange={(tags) => updateEmbeddedVideoShape({ tags })}
-                    />
-                  </>
-                )}
-
-                {timestampShape && (
-                  <>
-                    <label className="canvas-property-group">
-                      <span>Timestamp (seconds)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={604_800}
-                        step={0.1}
-                        value={timestampShape.props.timestampSeconds}
-                        onChange={(event) =>
-                          updateTimestampShape({
-                            timestampSeconds: Math.min(
-                              604_800,
-                              Math.max(0, event.target.valueAsNumber || 0)
-                            )
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="canvas-property-group">
-                      <span>Note</span>
-                      <textarea
-                        value={timestampShape.props.content}
-                        maxLength={100_000}
-                        rows={5}
-                        onChange={(event) => updateTimestampShape({ content: event.target.value })}
-                      />
-                    </label>
-                    <fieldset className="canvas-property-group">
-                      <legend>Background</legend>
-                      <div className="flex flex-wrap gap-2">
-                        {BACKGROUNDS.map((background) => (
-                          <button
-                            type="button"
-                            key={background.value}
-                            className={`canvas-color-chip ${timestampShape.props.background === background.value ? 'is-active' : ''}`}
-                            style={{ background: background.color }}
-                            aria-label={`${background.label} background`}
-                            aria-pressed={timestampShape.props.background === background.value}
-                            onClick={() => updateTimestampShape({ background: background.value })}
-                          />
-                        ))}
-                      </div>
-                    </fieldset>
-                    <TagsField
-                      id={timestampShape.id}
-                      tags={timestampShape.props.tags}
-                      placeholder="quote, insight"
-                      onChange={(tags) => updateTimestampShape({ tags })}
-                    />
-                  </>
-                )}
-
-                <div className="canvas-property-actions">
-                  {selectedShape.type === 'group' && (
-                    <button type="button" onClick={() => editor?.ungroupShapes([selectedShape.id])}>
-                      <Ungroup size={15} /> Ungroup
-                    </button>
-                  )}
-                  <button type="button" onClick={() => editor?.toggleLock([selectedShape.id])}>
-                    {selectedShape.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
-                    {selectedShape.isLocked ? 'Unlock' : 'Lock'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => editor?.duplicateShapes([selectedShape.id], { x: 24, y: 24 })}
-                  >
-                    <Copy size={15} /> Duplicate
-                  </button>
-                  <button
-                    type="button"
-                    className="is-danger"
-                    onClick={() => editor?.deleteShapes([selectedShape.id])}
-                  >
-                    <Trash2 size={15} /> Delete
-                  </button>
-                </div>
+                  </div>
+                </details>
               </div>
             )}
 
@@ -2057,300 +2801,321 @@ export function BoardEditor({
         )}
       </section>
 
-      {exportDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <section
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="export-board-title"
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Portable output</p>
-                <h2 id="export-board-title">Export board</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close export dialog"
-                disabled={exporting}
-                onClick={() => setExportDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>PNG / PDF area</span>
-              <select
-                value={exportScope}
-                disabled={exporting}
-                onChange={(event) => setExportScope(event.target.value as 'all' | 'selection')}
-              >
-                <option value="all">Whole board</option>
-                <option value="selection">Selected objects</option>
-              </select>
-            </label>
-            <div className="canvas-export-options">
-              <button type="button" disabled={exporting} onClick={() => void exportJson()}>
-                <strong>JSON</strong>
-                <span>Editable .canvasnote data</span>
-              </button>
-              <button type="button" disabled={exporting} onClick={() => void exportVisual('png')}>
-                <strong>PNG</strong>
-                <span>Rendered board image</span>
-              </button>
-              <button type="button" disabled={exporting} onClick={() => void exportVisual('pdf')}>
-                <strong>PDF</strong>
-                <span>Printable board document</span>
-              </button>
-            </div>
-            {exporting && (
-              <p className="canvas-export-status" role="status">
-                <LoaderCircle className="animate-spin" size={14} /> Preparing export…
-              </p>
-            )}
-          </section>
-        </div>
-      )}
+      <Dialog
+        open={reloadDialogOpen}
+        title="Reload disk version?"
+        eyebrow="Unsaved local changes"
+        description="Reloading discards the edits currently open in this window. Export a recovery copy first if you may need them."
+        dismissOnBackdrop={!reloading}
+        onClose={() => {
+          if (!reloading) setReloadDialogOpen(false)
+        }}
+        footer={
+          <>
+            <Button variant="quiet" disabled={reloading} onClick={() => setReloadDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={reloading} onClick={() => void reloadDiskVersion()}>
+              Reload and discard local edits
+            </Button>
+          </>
+        }
+      >
+        <Feedback
+          tone="warning"
+          title="This cannot be undone"
+          message="CanvasNote will replace the open canvas with the latest board saved on disk."
+        />
+      </Dialog>
 
-      {searchOpen && (
-        <div className="canvas-dialog-backdrop">
-          <section
-            className="canvas-dialog canvas-search-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="board-search-title"
+      <Dialog
+        open={exportDialogOpen}
+        title="Export board"
+        eyebrow="Portable output"
+        description="Create an editable board file or a visual snapshot."
+        closeLabel="Close export dialog"
+        dismissOnBackdrop={!exporting}
+        onClose={() => {
+          if (!exporting) setExportDialogOpen(false)
+        }}
+      >
+        <label className="canvas-dialog-field">
+          <span>PNG / PDF area</span>
+          <select
+            value={exportScope}
+            disabled={exporting}
+            onChange={(event) => setExportScope(event.target.value as 'all' | 'selection')}
           >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Find locally</p>
-                <h2 id="board-search-title">Search this board</h2>
-              </div>
-              <button type="button" aria-label="Close search" onClick={() => setSearchOpen(false)}>
-                <X size={17} />
-              </button>
-            </div>
+            <option value="all">Whole board</option>
+            <option value="selection">Selected objects</option>
+          </select>
+        </label>
+        <div className="canvas-export-options">
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportJson()}>
+            <strong>JSON</strong>
+            <span>Editable .canvasnote data</span>
+          </Button>
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportVisual('png')}>
+            <strong>PNG</strong>
+            <span>Rendered board image</span>
+          </Button>
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportVisual('pdf')}>
+            <strong>PDF</strong>
+            <span>Printable board document</span>
+          </Button>
+        </div>
+        {exporting && (
+          <Feedback
+            tone="info"
+            title="Preparing export…"
+            message="CanvasNote is rendering the selected area."
+          />
+        )}
+      </Dialog>
+
+      <Dialog
+        open={searchOpen}
+        wide
+        title="Search this board"
+        eyebrow="Find locally"
+        description="Find board objects or run a CanvasNote command."
+        closeLabel="Close search"
+        onClose={() => setSearchOpen(false)}
+      >
+        <div className="canvas-command-palette">
+          <label className="canvas-dialog-field">
+            <span>Search notes, tags, files, and captions</span>
+            <input
+              type="search"
+              value={searchQuery}
+              placeholder="Type to search…"
+              aria-controls="canvas-search-results"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                paletteEntries.length ? `canvas-search-option-${activeSearchIndex}` : undefined
+              }
+              onChange={(event) => {
+                setSearchQuery(event.target.value)
+                setActiveSearchIndex(0)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setSearchOpen(false)
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setActiveSearchIndex((index) =>
+                    paletteEntries.length ? (index + 1) % paletteEntries.length : 0
+                  )
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setActiveSearchIndex((index) =>
+                    paletteEntries.length
+                      ? (index - 1 + paletteEntries.length) % paletteEntries.length
+                      : 0
+                  )
+                }
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  activatePaletteEntry(activeSearchIndex)
+                }
+              }}
+            />
+          </label>
+          <div className="canvas-search-filters">
             <label>
-              <span>Search notes, tags, files, and captions</span>
-              <input
-                autoFocus
-                type="search"
-                value={searchQuery}
-                placeholder="Type to search…"
+              <span>Object type</span>
+              <select
+                value={searchType}
                 onChange={(event) => {
-                  setSearchQuery(event.target.value)
+                  setSearchType(event.target.value as BoardSearchType)
                   setActiveSearchIndex(0)
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setSearchOpen(false)
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    setActiveSearchIndex((index) =>
-                      searchResults.length ? (index + 1) % searchResults.length : 0
-                    )
-                  }
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    setActiveSearchIndex((index) =>
-                      searchResults.length
-                        ? (index - 1 + searchResults.length) % searchResults.length
-                        : 0
-                    )
-                  }
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    focusSearchResult(activeSearchIndex)
-                  }
+              >
+                <option value="all">All objects</option>
+                <option value="note">Notes</option>
+                <option value="checklist">Checklists</option>
+                <option value="timestamp-note">Timestamp notes</option>
+                <option value="image">Images</option>
+                <option value="local-video">Local videos</option>
+                <option value="embedded-video">Embedded videos</option>
+                <option value="file">Files</option>
+                <option value="link">Links</option>
+                <option value="frame">Frames</option>
+              </select>
+            </label>
+            <label>
+              <span>Tag</span>
+              <input
+                value={searchTag}
+                placeholder="Any tag"
+                onChange={(event) => {
+                  setSearchTag(event.target.value)
+                  setActiveSearchIndex(0)
                 }}
               />
             </label>
-            <div className="canvas-search-filters">
-              <label>
-                <span>Object type</span>
-                <select
-                  value={searchType}
-                  onChange={(event) => {
-                    setSearchType(event.target.value as BoardSearchType)
-                    setActiveSearchIndex(0)
-                  }}
+          </div>
+          <div
+            id="canvas-search-results"
+            className="canvas-search-results"
+            role="listbox"
+            aria-label="Search results"
+          >
+            {paletteEntries.length > 0 ? (
+              paletteGroups.map((group) => (
+                <div
+                  className="canvas-search-group"
+                  role="group"
+                  aria-label={group.category}
+                  key={group.category}
                 >
-                  <option value="all">All objects</option>
-                  <option value="note">Notes</option>
-                  <option value="checklist">Checklists</option>
-                  <option value="timestamp-note">Timestamp notes</option>
-                  <option value="image">Images</option>
-                  <option value="local-video">Local videos</option>
-                  <option value="embedded-video">Embedded videos</option>
-                  <option value="file">Files</option>
-                  <option value="link">Links</option>
-                  <option value="frame">Frames</option>
-                </select>
-              </label>
-              <label>
-                <span>Tag</span>
-                <input
-                  value={searchTag}
-                  placeholder="Any tag"
-                  onChange={(event) => {
-                    setSearchTag(event.target.value)
-                    setActiveSearchIndex(0)
-                  }}
-                />
-              </label>
-            </div>
-            <div className="canvas-search-results" role="listbox" aria-label="Search results">
-              {searchResults.length > 0 ? (
-                searchResults.map((result, index) => (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={index === activeSearchIndex}
-                    className={index === activeSearchIndex ? 'is-active' : ''}
-                    key={result.nodeId}
-                    onMouseEnter={() => setActiveSearchIndex(index)}
-                    onClick={() => focusSearchResult(index)}
-                  >
-                    <span>
-                      <HighlightedText text={result.title} query={searchQuery} />
-                    </span>
-                    <small>{result.type.replaceAll('-', ' ')}</small>
-                    {result.excerpt && (
-                      <p>
-                        <HighlightedText text={result.excerpt} query={searchQuery} />
-                      </p>
-                    )}
-                  </button>
-                ))
-              ) : (
-                <p className="canvas-search-empty">
-                  {searchQuery || searchTag ? 'No matching objects.' : 'Start typing to search.'}
-                </p>
-              )}
-            </div>
-            <p className="canvas-search-hint">↑↓ Navigate · Enter focus · Esc close</p>
-          </section>
-        </div>
-      )}
+                  <p className="canvas-search-category" aria-hidden="true">
+                    {group.category}
+                  </p>
+                  {group.entries.map(({ entry, index }) => {
+                    const title =
+                      entry.kind === 'command' ? entry.command.title : entry.result.title
+                    const description =
+                      entry.kind === 'command' ? entry.command.description : entry.result.excerpt
+                    const kind =
+                      entry.kind === 'command' ? 'Command' : entry.result.type.replaceAll('-', ' ')
 
-      {embedDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <form
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="embed-video-title"
-            onSubmit={(event) => {
-              event.preventDefault()
-              addEmbeddedVideo()
-            }}
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Video</p>
-                <h2 id="embed-video-title">Embed YouTube or Vimeo</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close video dialog"
-                onClick={() => setEmbedDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>Video URL</span>
-              <input
-                autoFocus
-                type="url"
-                value={embedUrl}
-                placeholder="https://www.youtube.com/watch?v=…"
-                onChange={(event) => {
-                  setEmbedUrl(event.target.value)
-                  setEmbedError(null)
-                }}
-              />
-            </label>
-            {embedError && <p className="canvas-dialog-error">{embedError}</p>}
-            <div className="canvas-dialog-actions">
-              <button type="button" onClick={() => setEmbedDialogOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="is-primary">
-                Embed video
-              </button>
-            </div>
-          </form>
+                    return (
+                      <Button
+                        id={`canvas-search-option-${index}`}
+                        variant="quiet"
+                        role="option"
+                        aria-selected={index === activeSearchIndex}
+                        className={index === activeSearchIndex ? 'is-active' : ''}
+                        key={`${entry.kind}-${index}`}
+                        onMouseEnter={() => setActiveSearchIndex(index)}
+                        onClick={() => activatePaletteEntry(index)}
+                      >
+                        <span>
+                          <HighlightedText text={title} query={searchQuery} />
+                        </span>
+                        <small>{kind}</small>
+                        {description && (
+                          <p>
+                            <HighlightedText text={description} query={searchQuery} />
+                          </p>
+                        )}
+                      </Button>
+                    )
+                  })}
+                </div>
+              ))
+            ) : (
+              <p className="canvas-search-empty" role="status">
+                No matching commands or objects.
+              </p>
+            )}
+          </div>
+          <p className="canvas-search-hint">↑↓ Navigate · Enter select · Esc close</p>
         </div>
-      )}
+      </Dialog>
 
-      {linkDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <form
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="link-card-title"
-            onSubmit={(event) => {
-              event.preventDefault()
-              addLinkCard()
-            }}
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Reference</p>
-                <h2 id="link-card-title">Add link card</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close link dialog"
-                onClick={() => setLinkDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>URL</span>
-              <input
-                autoFocus
-                value={linkUrl}
-                placeholder="https://example.com/article"
-                onChange={(event) => {
-                  setLinkUrl(event.target.value)
-                  setLinkError(null)
-                }}
-              />
-            </label>
-            <label>
-              <span>Title (optional)</span>
-              <input
-                value={linkTitle}
-                maxLength={500}
-                placeholder="Useful reference"
-                onChange={(event) => setLinkTitle(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Description (optional)</span>
-              <textarea
-                value={linkDescription}
-                maxLength={4_000}
-                rows={3}
-                placeholder="Why this link matters"
-                onChange={(event) => setLinkDescription(event.target.value)}
-              />
-            </label>
-            {linkError && <p className="canvas-dialog-error">{linkError}</p>}
-            <div className="canvas-dialog-actions">
-              <button type="button" onClick={() => setLinkDialogOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="is-primary">
-                Add link
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <Dialog
+        open={embedDialogOpen}
+        title="Embed YouTube or Vimeo"
+        eyebrow="Video"
+        closeLabel="Close video dialog"
+        onClose={() => setEmbedDialogOpen(false)}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setEmbedDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="embed-video-form">
+              Embed video
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="embed-video-form"
+          className="canvas-dialog-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            addEmbeddedVideo()
+          }}
+        >
+          <label className="canvas-dialog-field">
+            <span>Video URL</span>
+            <input
+              type="url"
+              value={embedUrl}
+              placeholder="https://www.youtube.com/watch?v=…"
+              onChange={(event) => {
+                setEmbedUrl(event.target.value)
+                setEmbedError(null)
+              }}
+            />
+          </label>
+          {embedError && (
+            <Feedback tone="danger" title="Video URL is invalid" message={embedError} />
+          )}
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={linkDialogOpen}
+        title="Add link card"
+        eyebrow="Reference"
+        closeLabel="Close link dialog"
+        onClose={() => setLinkDialogOpen(false)}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setLinkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="link-card-form">
+              Add link
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="link-card-form"
+          className="canvas-dialog-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            addLinkCard()
+          }}
+        >
+          <label className="canvas-dialog-field">
+            <span>URL</span>
+            <input
+              value={linkUrl}
+              placeholder="https://example.com/article"
+              onChange={(event) => {
+                setLinkUrl(event.target.value)
+                setLinkError(null)
+              }}
+            />
+          </label>
+          <label className="canvas-dialog-field">
+            <span>Title (optional)</span>
+            <input
+              value={linkTitle}
+              maxLength={500}
+              placeholder="Useful reference"
+              onChange={(event) => setLinkTitle(event.target.value)}
+            />
+          </label>
+          <label className="canvas-dialog-field">
+            <span>Description (optional)</span>
+            <textarea
+              value={linkDescription}
+              maxLength={4_000}
+              rows={3}
+              placeholder="Why this link matters"
+              onChange={(event) => setLinkDescription(event.target.value)}
+            />
+          </label>
+          {linkError && <Feedback tone="danger" title="Link is invalid" message={linkError} />}
+        </form>
+      </Dialog>
     </main>
   )
 }

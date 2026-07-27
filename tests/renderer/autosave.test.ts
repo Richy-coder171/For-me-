@@ -59,6 +59,31 @@ describe('createAutosaveQueue', () => {
     expect(queue.isDirty()).toBe(false)
   })
 
+  it('retries newer work when a concurrent flush observes a failed save', async () => {
+    let rejectFirst: ((error: Error) => void) | undefined
+    const save = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectFirst = reject
+          })
+      )
+      .mockResolvedValue(undefined)
+    const queue = createAutosaveQueue(save)
+
+    queue.schedule()
+    const first = queue.flush()
+    queue.schedule()
+    const retry = queue.flush()
+    rejectFirst?.(new Error('incomplete snapshot'))
+
+    await expect(first).rejects.toThrow('incomplete snapshot')
+    await expect(retry).resolves.toBeUndefined()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(queue.isDirty()).toBe(false)
+  })
+
   it('uses an updated save handler', async () => {
     const first = vi.fn(async () => undefined)
     const latest = vi.fn(async () => undefined)

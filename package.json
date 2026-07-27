@@ -2,6 +2,14 @@
   "name": "canvasnote",
   "version": "0.1.0",
   "description": "A local-first visual notebook for notes, media, and timestamped video research.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Richy-coder171/For-me-.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Richy-coder171/For-me-/issues"
+  },
+  "homepage": "https://github.com/Richy-coder171/For-me-#readme",
   "private": true,
   "main": "out/main/index.js",
   "author": "Richy",
@@ -17,6 +25,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run setup && npm run build && playwright test",
+    "test:a11y": "npm run setup && npm run build && playwright test tests/e2e/accessibility.spec.ts",
+    "test:visual": "npm run setup && npm run build && playwright test tests/e2e/visual-regression.spec.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
@@ -34,6 +44,7 @@
     "zustand": "5.0.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.61.1",
     "@swc/core": "1.15.46",
