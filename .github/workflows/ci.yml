@@ -58,3 +58,7 @@ jobs:
 
       - name: Build production bundles
         run: npm run build
+
+      - name: Check Electron accessibility
+        if: runner.os == 'Windows'
+        run: npx playwright test tests/e2e/accessibility.spec.ts
