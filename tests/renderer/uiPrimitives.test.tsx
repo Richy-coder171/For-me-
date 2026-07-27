@@ -81,7 +81,7 @@ describe('CanvasNote UI primitives', () => {
     expect(screen.getByRole('textbox', { name: 'Board name' })).toHaveFocus()
 
     fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }))
-    expect(dialog).not.toHaveAttribute('open')
+    expect(screen.queryByRole('dialog', { name: 'Rename board' })).not.toBeInTheDocument()
     expect(opener).toHaveFocus()
   })
 })

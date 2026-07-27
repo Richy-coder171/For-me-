@@ -31,8 +31,7 @@ import {
   Undo2,
   Ungroup,
   Unlock,
-  Video,
-  X
+  Video
 } from 'lucide-react'
 import {
   BreakPointProvider,
@@ -57,8 +56,10 @@ import type { BoardFile, OpenBoard } from '../../shared/schemas/board'
 import { MAX_IMAGE_TRANSFER_BYTES, type ImportedMedia } from '../../shared/schemas/media'
 import type { AppSettings } from '../../shared/schemas/settings'
 import { BrandMark } from '../components/BrandMark'
+import { Button, Dialog, Feedback } from '../components/ui'
+import type { SettingsSection } from '../components/SettingsPanel'
 import { createAutosaveQueue, type AutosaveQueue } from './autosave'
-import { searchBoard, type BoardSearchType } from './boardSearch'
+import { searchBoard, type BoardSearchResult, type BoardSearchType } from './boardSearch'
 import { boardToTldraw, tldrawToBoard } from './boardSerializer'
 import {
   CN_CHECKLIST_TYPE,
@@ -124,7 +125,9 @@ interface BoardEditorProps {
   onBack: () => Promise<void>
   onSave: (board: BoardFile, expectedRevision: string) => Promise<OpenBoard>
   settings: AppSettings
-  onOpenSettings: () => void
+  onOpenSettings: (section?: SettingsSection) => void
+  onOpenTemplates: () => Promise<void>
+  onToggleTheme: () => void
   onRegisterClosePreparation: (handler: () => Promise<void>) => () => void
 }
 
@@ -266,6 +269,123 @@ function HighlightedText({ text, query }: { text: string; query: string }): Reac
       {text.slice(index + needle.length)}
     </>
   )
+}
+
+export type BoardCommandId =
+  | 'board-title'
+  | 'create-note'
+  | 'import-image'
+  | 'import-video'
+  | 'open-settings'
+  | 'open-templates'
+  | 'export-board'
+  | 'toggle-theme'
+  | 'show-shortcuts'
+
+export interface BoardPaletteCommand {
+  id: BoardCommandId
+  title: string
+  description: string
+  category: string
+}
+
+const BOARD_COMMANDS: ReadonlyArray<BoardPaletteCommand & { keywords: string }> = [
+  {
+    id: 'create-note',
+    title: 'Create note',
+    description: 'Add a note to this board',
+    category: 'Create',
+    keywords: 'new add sticky'
+  },
+  {
+    id: 'import-image',
+    title: 'Import image',
+    description: 'Copy an image into the workspace',
+    category: 'Create',
+    keywords: 'add photo picture'
+  },
+  {
+    id: 'import-video',
+    title: 'Import video',
+    description: 'Copy a local video into the workspace',
+    category: 'Create',
+    keywords: 'add local media'
+  },
+  {
+    id: 'open-settings',
+    title: 'Open Settings',
+    description: 'Change CanvasNote preferences',
+    category: 'Navigate',
+    keywords: 'preferences options'
+  },
+  {
+    id: 'open-templates',
+    title: 'Open Templates',
+    description: 'Return to the template browser',
+    category: 'Navigate',
+    keywords: 'dashboard gallery'
+  },
+  {
+    id: 'export-board',
+    title: 'Export board',
+    description: 'Export JSON, PNG, or PDF',
+    category: 'Board actions',
+    keywords: 'download png pdf json'
+  },
+  {
+    id: 'toggle-theme',
+    title: 'Toggle theme',
+    description: 'Switch between light and dark appearance',
+    category: 'Appearance',
+    keywords: 'dark light color mode'
+  },
+  {
+    id: 'show-shortcuts',
+    title: 'Show keyboard shortcuts',
+    description: 'Open the keyboard shortcut reference',
+    category: 'Help',
+    keywords: 'keys hotkeys help'
+  }
+]
+
+export function boardPaletteCommands(
+  boardTitle: string,
+  query: string,
+  recentIds: readonly BoardCommandId[] = []
+): BoardPaletteCommand[] {
+  const commands: Array<BoardPaletteCommand & { keywords: string }> = [
+    {
+      id: 'board-title',
+      title: boardTitle,
+      description: 'Edit current board title',
+      category: 'Current board',
+      keywords: 'board title rename current'
+    },
+    ...BOARD_COMMANDS
+  ]
+  const normalized = query.trim().toLocaleLowerCase()
+  const matching = normalized
+    ? commands.filter(({ title, description, keywords }) =>
+        `${title} ${description} ${keywords}`.toLocaleLowerCase().includes(normalized)
+      )
+    : commands
+  if (normalized || recentIds.length === 0) return matching
+
+  const recent = recentIds.flatMap((id) => {
+    const command = matching.find((candidate) => candidate.id === id)
+    return command ? [{ ...command, category: 'Recent' }] : []
+  })
+  const recentSet = new Set(recentIds)
+  return [...recent, ...matching.filter(({ id }) => !recentSet.has(id))]
+}
+
+type BoardPaletteEntry =
+  | { kind: 'command'; command: BoardPaletteCommand; category: string }
+  | { kind: 'object'; result: BoardSearchResult; resultIndex: number; category: 'Objects' }
+
+interface BoardPaletteGroup {
+  category: string
+  entries: Array<{ entry: BoardPaletteEntry; index: number }>
 }
 
 function ToolButton({
@@ -773,6 +893,8 @@ export function BoardEditor({
   onSave,
   settings,
   onOpenSettings,
+  onOpenTemplates,
+  onToggleTheme,
   onRegisterClosePreparation
 }: BoardEditorProps): React.JSX.Element {
   const [store] = useState(() => createTLStore({ shapeUtils: CANVAS_SHAPE_UTILS }))
@@ -809,6 +931,7 @@ export function BoardEditor({
   const [searchTag, setSearchTag] = useState('')
   const [activeSearchIndex, setActiveSearchIndex] = useState(0)
   const [searchBoardSnapshot, setSearchBoardSnapshot] = useState(stored.board)
+  const [recentCommandIds, setRecentCommandIds] = useState<BoardCommandId[]>([])
   const editorRef = useRef<Editor | null>(null)
   const titleRef = useRef(title)
   const boardRef = useRef(stored.board)
@@ -1153,6 +1276,41 @@ export function BoardEditor({
     [searchBoardSnapshot, searchQuery, searchTag, searchType]
   )
 
+  const commandResults = useMemo(
+    () =>
+      searchType === 'all' && !searchTag.trim()
+        ? boardPaletteCommands(title.trim() || 'Untitled board', searchQuery, recentCommandIds)
+        : [],
+    [recentCommandIds, searchQuery, searchTag, searchType, title]
+  )
+
+  const paletteEntries = useMemo<BoardPaletteEntry[]>(
+    () => [
+      ...commandResults.map((command): BoardPaletteEntry => ({
+        kind: 'command',
+        command,
+        category: command.category
+      })),
+      ...searchResults.map((result, resultIndex): BoardPaletteEntry => ({
+        kind: 'object',
+        result,
+        resultIndex,
+        category: 'Objects'
+      }))
+    ],
+    [commandResults, searchResults]
+  )
+
+  const paletteGroups = useMemo<BoardPaletteGroup[]>(() => {
+    const groups: BoardPaletteGroup[] = []
+    paletteEntries.forEach((entry, index) => {
+      const last = groups.at(-1)
+      if (last?.category === entry.category) last.entries.push({ entry, index })
+      else groups.push({ category: entry.category, entries: [{ entry, index }] })
+    })
+    return groups
+  }, [paletteEntries])
+
   const focusSearchResult = useCallback(
     (index: number) => {
       if (!editor) return
@@ -1167,6 +1325,68 @@ export function BoardEditor({
       setSearchOpen(false)
     },
     [editor, searchResults]
+  )
+
+  const runPaletteCommand = useCallback(
+    (command: BoardPaletteCommand) => {
+      setRecentCommandIds((recent) =>
+        [command.id, ...recent.filter((id) => id !== command.id)].slice(0, 4)
+      )
+      setSearchOpen(false)
+
+      const afterClose = (action: () => void): void => {
+        requestAnimationFrame(action)
+      }
+      switch (command.id) {
+        case 'board-title':
+          afterClose(() => {
+            document.querySelector<HTMLInputElement>('[aria-label="Board title"]')?.focus()
+          })
+          break
+        case 'create-note':
+          afterClose(() => {
+            if (editor) createNoteShape(editor)
+          })
+          break
+        case 'import-image':
+          afterClose(() => void importMedia('image'))
+          break
+        case 'import-video':
+          afterClose(() => void importMedia('video'))
+          break
+        case 'open-settings':
+          afterClose(() => onOpenSettings())
+          break
+        case 'open-templates':
+          afterClose(() => {
+            void saveQueue
+              .flush()
+              .then(onOpenTemplates)
+              .catch(() => undefined)
+          })
+          break
+        case 'export-board':
+          afterClose(() => setExportDialogOpen(true))
+          break
+        case 'toggle-theme':
+          onToggleTheme()
+          break
+        case 'show-shortcuts':
+          afterClose(() => onOpenSettings('shortcuts'))
+          break
+      }
+    },
+    [editor, importMedia, onOpenSettings, onOpenTemplates, onToggleTheme, saveQueue]
+  )
+
+  const activatePaletteEntry = useCallback(
+    (index: number) => {
+      const entry = paletteEntries[index]
+      if (!entry) return
+      if (entry.kind === 'command') runPaletteCommand(entry.command)
+      else focusSearchResult(entry.resultIndex)
+    },
+    [focusSearchResult, paletteEntries, runPaletteCommand]
   )
 
   useEffect(() => {
@@ -1653,7 +1873,7 @@ export function BoardEditor({
           className="icon-button"
           aria-label="Open settings"
           title="Settings"
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
         >
           <Settings2 size={16} />
         </button>
@@ -2240,300 +2460,294 @@ export function BoardEditor({
         )}
       </section>
 
-      {exportDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <section
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="export-board-title"
+      <Dialog
+        open={exportDialogOpen}
+        title="Export board"
+        eyebrow="Portable output"
+        description="Create an editable board file or a visual snapshot."
+        closeLabel="Close export dialog"
+        dismissOnBackdrop={!exporting}
+        onClose={() => {
+          if (!exporting) setExportDialogOpen(false)
+        }}
+      >
+        <label className="canvas-dialog-field">
+          <span>PNG / PDF area</span>
+          <select
+            value={exportScope}
+            disabled={exporting}
+            onChange={(event) => setExportScope(event.target.value as 'all' | 'selection')}
           >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Portable output</p>
-                <h2 id="export-board-title">Export board</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close export dialog"
-                disabled={exporting}
-                onClick={() => setExportDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>PNG / PDF area</span>
-              <select
-                value={exportScope}
-                disabled={exporting}
-                onChange={(event) => setExportScope(event.target.value as 'all' | 'selection')}
-              >
-                <option value="all">Whole board</option>
-                <option value="selection">Selected objects</option>
-              </select>
-            </label>
-            <div className="canvas-export-options">
-              <button type="button" disabled={exporting} onClick={() => void exportJson()}>
-                <strong>JSON</strong>
-                <span>Editable .canvasnote data</span>
-              </button>
-              <button type="button" disabled={exporting} onClick={() => void exportVisual('png')}>
-                <strong>PNG</strong>
-                <span>Rendered board image</span>
-              </button>
-              <button type="button" disabled={exporting} onClick={() => void exportVisual('pdf')}>
-                <strong>PDF</strong>
-                <span>Printable board document</span>
-              </button>
-            </div>
-            {exporting && (
-              <p className="canvas-export-status" role="status">
-                <LoaderCircle className="animate-spin" size={14} /> Preparing export…
-              </p>
-            )}
-          </section>
+            <option value="all">Whole board</option>
+            <option value="selection">Selected objects</option>
+          </select>
+        </label>
+        <div className="canvas-export-options">
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportJson()}>
+            <strong>JSON</strong>
+            <span>Editable .canvasnote data</span>
+          </Button>
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportVisual('png')}>
+            <strong>PNG</strong>
+            <span>Rendered board image</span>
+          </Button>
+          <Button variant="quiet" disabled={exporting} onClick={() => void exportVisual('pdf')}>
+            <strong>PDF</strong>
+            <span>Printable board document</span>
+          </Button>
         </div>
-      )}
+        {exporting && (
+          <Feedback
+            tone="info"
+            title="Preparing export…"
+            message="CanvasNote is rendering the selected area."
+          />
+        )}
+      </Dialog>
 
-      {searchOpen && (
-        <div className="canvas-dialog-backdrop">
-          <section
-            className="canvas-dialog canvas-search-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="board-search-title"
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Find locally</p>
-                <h2 id="board-search-title">Search this board</h2>
-              </div>
-              <button type="button" aria-label="Close search" onClick={() => setSearchOpen(false)}>
-                <X size={17} />
-              </button>
-            </div>
+      <Dialog
+        open={searchOpen}
+        wide
+        title="Search this board"
+        eyebrow="Find locally"
+        description="Find board objects or run a CanvasNote command."
+        closeLabel="Close search"
+        onClose={() => setSearchOpen(false)}
+      >
+        <div className="canvas-command-palette">
+          <label className="canvas-dialog-field">
+            <span>Search notes, tags, files, and captions</span>
+            <input
+              type="search"
+              value={searchQuery}
+              placeholder="Type to search…"
+              aria-controls="canvas-search-results"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                paletteEntries.length ? `canvas-search-option-${activeSearchIndex}` : undefined
+              }
+              onChange={(event) => {
+                setSearchQuery(event.target.value)
+                setActiveSearchIndex(0)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setSearchOpen(false)
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setActiveSearchIndex((index) =>
+                    paletteEntries.length ? (index + 1) % paletteEntries.length : 0
+                  )
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setActiveSearchIndex((index) =>
+                    paletteEntries.length
+                      ? (index - 1 + paletteEntries.length) % paletteEntries.length
+                      : 0
+                  )
+                }
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  activatePaletteEntry(activeSearchIndex)
+                }
+              }}
+            />
+          </label>
+          <div className="canvas-search-filters">
             <label>
-              <span>Search notes, tags, files, and captions</span>
-              <input
-                autoFocus
-                type="search"
-                value={searchQuery}
-                placeholder="Type to search…"
+              <span>Object type</span>
+              <select
+                value={searchType}
                 onChange={(event) => {
-                  setSearchQuery(event.target.value)
+                  setSearchType(event.target.value as BoardSearchType)
                   setActiveSearchIndex(0)
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setSearchOpen(false)
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    setActiveSearchIndex((index) =>
-                      searchResults.length ? (index + 1) % searchResults.length : 0
-                    )
-                  }
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    setActiveSearchIndex((index) =>
-                      searchResults.length
-                        ? (index - 1 + searchResults.length) % searchResults.length
-                        : 0
-                    )
-                  }
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    focusSearchResult(activeSearchIndex)
-                  }
+              >
+                <option value="all">All objects</option>
+                <option value="note">Notes</option>
+                <option value="checklist">Checklists</option>
+                <option value="timestamp-note">Timestamp notes</option>
+                <option value="image">Images</option>
+                <option value="local-video">Local videos</option>
+                <option value="embedded-video">Embedded videos</option>
+                <option value="file">Files</option>
+                <option value="link">Links</option>
+                <option value="frame">Frames</option>
+              </select>
+            </label>
+            <label>
+              <span>Tag</span>
+              <input
+                value={searchTag}
+                placeholder="Any tag"
+                onChange={(event) => {
+                  setSearchTag(event.target.value)
+                  setActiveSearchIndex(0)
                 }}
               />
             </label>
-            <div className="canvas-search-filters">
-              <label>
-                <span>Object type</span>
-                <select
-                  value={searchType}
-                  onChange={(event) => {
-                    setSearchType(event.target.value as BoardSearchType)
-                    setActiveSearchIndex(0)
-                  }}
+          </div>
+          <div
+            id="canvas-search-results"
+            className="canvas-search-results"
+            role="listbox"
+            aria-label="Search results"
+          >
+            {paletteEntries.length > 0 ? (
+              paletteGroups.map((group) => (
+                <div
+                  className="canvas-search-group"
+                  role="group"
+                  aria-label={group.category}
+                  key={group.category}
                 >
-                  <option value="all">All objects</option>
-                  <option value="note">Notes</option>
-                  <option value="checklist">Checklists</option>
-                  <option value="timestamp-note">Timestamp notes</option>
-                  <option value="image">Images</option>
-                  <option value="local-video">Local videos</option>
-                  <option value="embedded-video">Embedded videos</option>
-                  <option value="file">Files</option>
-                  <option value="link">Links</option>
-                  <option value="frame">Frames</option>
-                </select>
-              </label>
-              <label>
-                <span>Tag</span>
-                <input
-                  value={searchTag}
-                  placeholder="Any tag"
-                  onChange={(event) => {
-                    setSearchTag(event.target.value)
-                    setActiveSearchIndex(0)
-                  }}
-                />
-              </label>
-            </div>
-            <div className="canvas-search-results" role="listbox" aria-label="Search results">
-              {searchResults.length > 0 ? (
-                searchResults.map((result, index) => (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={index === activeSearchIndex}
-                    className={index === activeSearchIndex ? 'is-active' : ''}
-                    key={result.nodeId}
-                    onMouseEnter={() => setActiveSearchIndex(index)}
-                    onClick={() => focusSearchResult(index)}
-                  >
-                    <span>
-                      <HighlightedText text={result.title} query={searchQuery} />
-                    </span>
-                    <small>{result.type.replaceAll('-', ' ')}</small>
-                    {result.excerpt && (
-                      <p>
-                        <HighlightedText text={result.excerpt} query={searchQuery} />
-                      </p>
-                    )}
-                  </button>
-                ))
-              ) : (
-                <p className="canvas-search-empty">
-                  {searchQuery || searchTag ? 'No matching objects.' : 'Start typing to search.'}
-                </p>
-              )}
-            </div>
-            <p className="canvas-search-hint">↑↓ Navigate · Enter focus · Esc close</p>
-          </section>
-        </div>
-      )}
+                  <p className="canvas-search-category" aria-hidden="true">
+                    {group.category}
+                  </p>
+                  {group.entries.map(({ entry, index }) => {
+                    const title =
+                      entry.kind === 'command' ? entry.command.title : entry.result.title
+                    const description =
+                      entry.kind === 'command' ? entry.command.description : entry.result.excerpt
+                    const kind =
+                      entry.kind === 'command' ? 'Command' : entry.result.type.replaceAll('-', ' ')
 
-      {embedDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <form
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="embed-video-title"
-            onSubmit={(event) => {
-              event.preventDefault()
-              addEmbeddedVideo()
-            }}
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Video</p>
-                <h2 id="embed-video-title">Embed YouTube or Vimeo</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close video dialog"
-                onClick={() => setEmbedDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>Video URL</span>
-              <input
-                autoFocus
-                type="url"
-                value={embedUrl}
-                placeholder="https://www.youtube.com/watch?v=…"
-                onChange={(event) => {
-                  setEmbedUrl(event.target.value)
-                  setEmbedError(null)
-                }}
-              />
-            </label>
-            {embedError && <p className="canvas-dialog-error">{embedError}</p>}
-            <div className="canvas-dialog-actions">
-              <button type="button" onClick={() => setEmbedDialogOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="is-primary">
-                Embed video
-              </button>
-            </div>
-          </form>
+                    return (
+                      <Button
+                        id={`canvas-search-option-${index}`}
+                        variant="quiet"
+                        role="option"
+                        aria-selected={index === activeSearchIndex}
+                        className={index === activeSearchIndex ? 'is-active' : ''}
+                        key={`${entry.kind}-${index}`}
+                        onMouseEnter={() => setActiveSearchIndex(index)}
+                        onClick={() => activatePaletteEntry(index)}
+                      >
+                        <span>
+                          <HighlightedText text={title} query={searchQuery} />
+                        </span>
+                        <small>{kind}</small>
+                        {description && (
+                          <p>
+                            <HighlightedText text={description} query={searchQuery} />
+                          </p>
+                        )}
+                      </Button>
+                    )
+                  })}
+                </div>
+              ))
+            ) : (
+              <p className="canvas-search-empty" role="status">
+                No matching commands or objects.
+              </p>
+            )}
+          </div>
+          <p className="canvas-search-hint">↑↓ Navigate · Enter select · Esc close</p>
         </div>
-      )}
+      </Dialog>
 
-      {linkDialogOpen && (
-        <div className="canvas-dialog-backdrop">
-          <form
-            className="canvas-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="link-card-title"
-            onSubmit={(event) => {
-              event.preventDefault()
-              addLinkCard()
-            }}
-          >
-            <div className="canvas-dialog-header">
-              <div>
-                <p>Reference</p>
-                <h2 id="link-card-title">Add link card</h2>
-              </div>
-              <button
-                type="button"
-                aria-label="Close link dialog"
-                onClick={() => setLinkDialogOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <label>
-              <span>URL</span>
-              <input
-                autoFocus
-                value={linkUrl}
-                placeholder="https://example.com/article"
-                onChange={(event) => {
-                  setLinkUrl(event.target.value)
-                  setLinkError(null)
-                }}
-              />
-            </label>
-            <label>
-              <span>Title (optional)</span>
-              <input
-                value={linkTitle}
-                maxLength={500}
-                placeholder="Useful reference"
-                onChange={(event) => setLinkTitle(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Description (optional)</span>
-              <textarea
-                value={linkDescription}
-                maxLength={4_000}
-                rows={3}
-                placeholder="Why this link matters"
-                onChange={(event) => setLinkDescription(event.target.value)}
-              />
-            </label>
-            {linkError && <p className="canvas-dialog-error">{linkError}</p>}
-            <div className="canvas-dialog-actions">
-              <button type="button" onClick={() => setLinkDialogOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="is-primary">
-                Add link
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <Dialog
+        open={embedDialogOpen}
+        title="Embed YouTube or Vimeo"
+        eyebrow="Video"
+        closeLabel="Close video dialog"
+        onClose={() => setEmbedDialogOpen(false)}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setEmbedDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="embed-video-form">
+              Embed video
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="embed-video-form"
+          className="canvas-dialog-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            addEmbeddedVideo()
+          }}
+        >
+          <label className="canvas-dialog-field">
+            <span>Video URL</span>
+            <input
+              type="url"
+              value={embedUrl}
+              placeholder="https://www.youtube.com/watch?v=…"
+              onChange={(event) => {
+                setEmbedUrl(event.target.value)
+                setEmbedError(null)
+              }}
+            />
+          </label>
+          {embedError && (
+            <Feedback tone="danger" title="Video URL is invalid" message={embedError} />
+          )}
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={linkDialogOpen}
+        title="Add link card"
+        eyebrow="Reference"
+        closeLabel="Close link dialog"
+        onClose={() => setLinkDialogOpen(false)}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setLinkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="link-card-form">
+              Add link
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="link-card-form"
+          className="canvas-dialog-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            addLinkCard()
+          }}
+        >
+          <label className="canvas-dialog-field">
+            <span>URL</span>
+            <input
+              value={linkUrl}
+              placeholder="https://example.com/article"
+              onChange={(event) => {
+                setLinkUrl(event.target.value)
+                setLinkError(null)
+              }}
+            />
+          </label>
+          <label className="canvas-dialog-field">
+            <span>Title (optional)</span>
+            <input
+              value={linkTitle}
+              maxLength={500}
+              placeholder="Useful reference"
+              onChange={(event) => setLinkTitle(event.target.value)}
+            />
+          </label>
+          <label className="canvas-dialog-field">
+            <span>Description (optional)</span>
+            <textarea
+              value={linkDescription}
+              maxLength={4_000}
+              rows={3}
+              placeholder="Why this link matters"
+              onChange={(event) => setLinkDescription(event.target.value)}
+            />
+          </label>
+          {linkError && <Feedback tone="danger" title="Link is invalid" message={linkError} />}
+        </form>
+      </Dialog>
     </main>
   )
 }

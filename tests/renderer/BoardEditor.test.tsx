@@ -8,7 +8,7 @@ vi.hoisted(() => {
   })
 })
 
-import { BoardAddMenu } from '../../src/renderer/canvas/BoardEditor'
+import { BoardAddMenu, boardPaletteCommands } from '../../src/renderer/canvas/BoardEditor'
 
 afterEach(cleanup)
 
@@ -88,5 +88,24 @@ describe('Board editor add menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Embed YouTube or Vimeo video' }))
     expect(onEmbedVideo).toHaveBeenCalledOnce()
     expect(onAttachFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('Board editor command palette', () => {
+  it('finds the board and commands, then promotes recent commands without duplicates', () => {
+    expect(boardPaletteCommands('Research board', 'research')).toMatchObject([
+      { id: 'board-title', category: 'Current board' }
+    ])
+    expect(boardPaletteCommands('Research board', 'import').map(({ id }) => id)).toEqual([
+      'import-image',
+      'import-video'
+    ])
+
+    const commands = boardPaletteCommands('Research board', '', ['toggle-theme', 'create-note'])
+    expect(commands.slice(0, 2)).toMatchObject([
+      { id: 'toggle-theme', category: 'Recent' },
+      { id: 'create-note', category: 'Recent' }
+    ])
+    expect(commands.filter(({ id }) => id === 'toggle-theme')).toHaveLength(1)
   })
 })

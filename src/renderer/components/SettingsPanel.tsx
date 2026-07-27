@@ -19,6 +19,7 @@ import { Button, Dialog, Feedback } from './ui'
 interface SettingsPanelProps {
   snapshot: SettingsSnapshot
   recentWorkspaces: WorkspaceSummary[]
+  initialSection?: SettingsSection
   version?: string
   platform?: string
   onChange: (settings: AppSettings) => Promise<void>
@@ -27,7 +28,7 @@ interface SettingsPanelProps {
   onClose: () => void
 }
 
-type SettingsSection =
+export type SettingsSection =
   'appearance' | 'canvas' | 'media' | 'shortcuts' | 'privacy' | 'diagnostics' | 'about'
 
 const sections: ReadonlyArray<{
@@ -68,6 +69,7 @@ function SettingGroup({
 export function SettingsPanel({
   snapshot,
   recentWorkspaces,
+  initialSection = 'appearance',
   version = '0.1.0',
   platform = 'desktop',
   onChange,
@@ -75,7 +77,7 @@ export function SettingsPanel({
   onOpenBackups,
   onClose
 }: SettingsPanelProps): React.JSX.Element {
-  const [section, setSection] = useState<SettingsSection>('appearance')
+  const [section, setSection] = useState<SettingsSection>(initialSection)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)

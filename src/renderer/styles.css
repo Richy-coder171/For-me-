@@ -1151,76 +1151,23 @@ button:not(:disabled) {
   font-weight: 650;
 }
 
-.canvas-dialog-backdrop {
-  position: fixed;
-  z-index: 1000;
+.canvas-dialog-form {
   display: grid;
-  place-items: center;
-  background: rgb(15 23 42 / 42%);
-  inset: 0;
-  padding: 1rem;
-  backdrop-filter: blur(3px);
+  gap: 0.8rem;
 }
 
-.canvas-dialog {
-  width: min(28rem, 100%);
-  border: 1px solid var(--line);
-  border-radius: 0.9rem;
-  background: var(--surface);
-  padding: 1rem;
-  box-shadow: var(--shadow-panel);
-}
-
-.canvas-dialog-header,
-.canvas-dialog-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.canvas-dialog-header p,
-.canvas-dialog-header h2 {
-  margin: 0;
-}
-
-.canvas-dialog-header p {
-  color: var(--faint);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.canvas-dialog-header h2 {
-  margin-top: 0.15rem;
-  font-size: 1rem;
-}
-
-.canvas-dialog-header > button {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  border: 0;
-  border-radius: 0.45rem;
-  background: transparent;
-  color: var(--muted);
-}
-
-.canvas-dialog > label {
+.canvas-dialog-field {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  margin-top: 1rem;
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 650;
 }
 
-.canvas-dialog input,
-.canvas-dialog select,
-.canvas-dialog textarea {
+.canvas-dialog-field input,
+.canvas-dialog-field select,
+.canvas-dialog-field textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0.55rem;
@@ -1230,41 +1177,17 @@ button:not(:disabled) {
   outline: 0;
 }
 
-.canvas-dialog input:focus,
-.canvas-dialog select:focus,
-.canvas-dialog textarea:focus {
+.canvas-dialog-field input:focus,
+.canvas-dialog-field select:focus,
+.canvas-dialog-field textarea:focus,
+.canvas-search-filters input:focus,
+.canvas-search-filters select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
 }
 
-.canvas-dialog-error {
-  margin: 0.55rem 0 0;
-  color: var(--danger);
-  font-size: 0.7rem;
-}
-
-.canvas-dialog-actions {
-  justify-content: flex-end;
-  margin-top: 1rem;
-}
-
-.canvas-dialog-actions button {
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--canvas);
-  padding: 0.58rem 0.8rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.canvas-dialog-actions button.is-primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
-}
-
-.canvas-search-dialog {
-  width: min(38rem, 100%);
+.canvas-command-palette {
+  min-width: 0;
 }
 
 .canvas-search-filters {
@@ -1302,6 +1225,19 @@ button:not(:disabled) {
   border-radius: 0.65rem;
   background: var(--canvas);
   padding: 0.3rem;
+}
+
+.canvas-search-group + .canvas-search-group {
+  margin-top: 0.25rem;
+}
+
+.canvas-search-category {
+  margin: 0.35rem 0.65rem 0.2rem;
+  color: var(--faint);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .canvas-search-results button {
@@ -1377,6 +1313,7 @@ button:not(:disabled) {
   display: flex;
   min-height: 5.5rem;
   flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
   gap: 0.3rem;
   border: 1px solid var(--line);
@@ -1405,15 +1342,6 @@ button:not(:disabled) {
   color: var(--muted);
   font-size: 0.65rem;
   line-height: 1.35;
-}
-
-.canvas-export-status {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.75rem 0 0;
-  color: var(--muted);
-  font-size: 0.7rem;
 }
 
 .canvas-exporting .canvas-toolbar,

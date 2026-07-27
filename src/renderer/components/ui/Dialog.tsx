@@ -80,6 +80,8 @@ export function Dialog({
     }
   }, [initialFocusRef, open])
 
+  if (!open) return <></>
+
   return (
     <dialog
       ref={dialogRef}

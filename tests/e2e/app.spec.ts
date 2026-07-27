@@ -121,6 +121,27 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(page.getByTestId('canvas-editor')).toBeVisible()
   await expect(page.getByRole('img', { name: 'Canvas minimap' })).toBeVisible()
 
+  const searchTrigger = page.getByRole('button', { name: 'Search this board' })
+  await searchTrigger.click()
+  await expect(page.getByRole('dialog', { name: 'Search this board' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('dialog').filter({ hasText: 'Search this board' })).toBeHidden()
+  await expect(searchTrigger).toBeFocused()
+
+  await page.keyboard.press('Control+K')
+  const commandSearch = page.getByRole('searchbox', {
+    name: 'Search notes, tags, files, and captions'
+  })
+  await expect(page.getByRole('option', { name: /Video research/i })).toBeVisible()
+  await commandSearch.fill('keyboard shortcuts')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Keyboard shortcuts' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  )
+  await page.getByRole('button', { name: 'Close settings' }).click()
+
   await page.getByRole('button', { name: 'New note' }).click()
   await page.getByLabel('Note title').fill('Opening idea')
   await page.getByLabel('Note content').fill('Start with the key question.')
@@ -207,7 +228,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
       value: async () => ({ canceled: false, filePaths: [fixture] })
     })
   }, fileFixture)
-  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Attach file' }).click()
   await expect(page.getByText('research.txt', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open research.txt' })).toBeVisible()
@@ -254,7 +275,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
     .poll(() => localVideo.evaluate((video: HTMLVideoElement) => video.currentTime))
     .toBeLessThanOrEqual(0.15)
 
-  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Embed YouTube or Vimeo video' }).click()
   await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
   await page.getByRole('button', { name: 'Embed video' }).click()
@@ -262,7 +283,7 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   await expect(embeddedVideo).toHaveAttribute('src', /dQw4w9WgXcQ/)
   await page.getByLabel('Caption').fill('YouTube reference')
 
-  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Add link card' }).click()
   await page.getByLabel('URL').fill('example.com/research')
   await page.getByLabel('Title (optional)').fill('Reference guide')
@@ -398,7 +419,11 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
     page.locator('iframe[src^="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"]')
   ).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'Export board' }).click()
+  await page.keyboard.press('Control+K')
+  await page
+    .getByRole('searchbox', { name: 'Search notes, tags, files, and captions' })
+    .fill('export board')
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Export board' })).toBeVisible()
   await page.getByRole('button', { name: /^JSON/ }).click()
   await expect(page.getByText('Board JSON exported.')).toBeVisible()
@@ -464,9 +489,12 @@ test('creates, edits, persists, trashes, restores, and reopens a local board', a
   }, importSource)
   await page.getByRole('button', { name: 'Import board' }).click()
   await expect(page.getByLabel('Board title')).toHaveValue('Edited video research')
-  await page.getByRole('button', { name: 'Back to boards' }).click()
-
-  await page.getByRole('button', { name: /^Templates/ }).click()
+  await page.keyboard.press('Control+K')
+  await page
+    .getByRole('searchbox', { name: 'Search notes, tags, files, and captions' })
+    .fill('open templates')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'Templates' })).toBeVisible()
   await page.getByRole('button', { name: /Video research.*Capture questions/i }).click()
   await page.getByRole('button', { name: 'Zoom to fit' }).click()
   await expect(page.getByText('Research question')).toBeVisible()

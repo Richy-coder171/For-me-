@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SettingsPanel } from '../../src/renderer/components/SettingsPanel'
+import { SettingsPanel, type SettingsSection } from '../../src/renderer/components/SettingsPanel'
 import { DEFAULT_APP_SETTINGS } from '../../src/shared/schemas/settings'
 
 afterEach(cleanup)
@@ -15,7 +15,10 @@ const recentWorkspaces = [
   }
 ]
 
-function renderSettings(workspacePath: string | null = 'D:\\Boards') {
+function renderSettings(
+  workspacePath: string | null = 'D:\\Boards',
+  initialSection?: SettingsSection
+) {
   const callbacks = {
     onChange: vi.fn(async () => undefined),
     onOpenDataLocation: vi.fn(async () => undefined),
@@ -31,6 +34,7 @@ function renderSettings(workspacePath: string | null = 'D:\\Boards') {
         workspacePath
       }}
       recentWorkspaces={recentWorkspaces}
+      initialSection={initialSection}
       version="0.2.0"
       platform="Windows"
       {...callbacks}
@@ -41,6 +45,16 @@ function renderSettings(workspacePath: string | null = 'D:\\Boards') {
 }
 
 describe('SettingsPanel', () => {
+  it('opens directly to a requested section', () => {
+    renderSettings('D:\\Boards', 'shortcuts')
+
+    expect(screen.getByRole('button', { name: 'Keyboard shortcuts' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible()
+  })
+
   it('navigates sections, updates settings, and resets appearance', async () => {
     const { onChange } = renderSettings()
 

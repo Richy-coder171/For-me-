@@ -5,7 +5,7 @@ import { BoardEditor } from './canvas/BoardEditor'
 import { Dashboard } from './components/Dashboard'
 import { BrandMark } from './components/BrandMark'
 import { WelcomeScreen } from './components/WelcomeScreen'
-import { SettingsPanel } from './components/SettingsPanel'
+import { SettingsPanel, type SettingsSection } from './components/SettingsPanel'
 import { Button, Feedback } from './components/ui'
 import { useAppStore, type BoardSection } from './stores/appStore'
 import { DEFAULT_APP_SETTINGS } from '../shared/schemas/settings'
@@ -59,6 +59,7 @@ function StartupScreen(): React.JSX.Element {
 export default function App(): React.JSX.Element {
   const [systemDark, setSystemDark] = useState(initialDarkMode)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const closePreparation = useRef<() => Promise<void>>(async () => undefined)
   const store = useAppStore()
   const initialize = store.initialize
@@ -106,11 +107,17 @@ export default function App(): React.JSX.Element {
       .catch(() => undefined)
   }
 
+  const openSettings = (section: SettingsSection = 'appearance'): void => {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
+
   const settingsPanel =
     settingsOpen && store.settingsSnapshot ? (
       <SettingsPanel
         snapshot={store.settingsSnapshot}
         recentWorkspaces={store.recentWorkspaces}
+        initialSection={settingsSection}
         version={store.appInfo?.version}
         platform={store.appInfo?.platform}
         onChange={store.updateSettings}
@@ -131,7 +138,12 @@ export default function App(): React.JSX.Element {
           onBack={store.closeBoard}
           onSave={store.saveBoard}
           settings={settings}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={openSettings}
+          onOpenTemplates={async () => {
+            await store.closeBoard()
+            store.setBoardSection('templates')
+          }}
+          onToggleTheme={toggleTheme}
           onRegisterClosePreparation={registerClosePreparation}
         />
         {settingsPanel}
@@ -172,7 +184,7 @@ export default function App(): React.JSX.Element {
           onDeleteBoard={(boardId) => void store.deleteBoard(boardId).catch(() => undefined)}
           onCloseWorkspace={() => void store.closeWorkspace().catch(() => undefined)}
           onToggleTheme={toggleTheme}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings()}
         />
         {settingsPanel}
         {store.error && !settingsOpen && (
@@ -188,7 +200,7 @@ export default function App(): React.JSX.Element {
         dark={dark}
         settingsAvailable={Boolean(store.settingsSnapshot)}
         onToggleTheme={toggleTheme}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => openSettings()}
         onImportBoard={() => void store.importBoard().catch(() => undefined)}
       />
       {settingsPanel}
