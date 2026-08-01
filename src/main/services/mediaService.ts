@@ -244,6 +244,32 @@ export class MediaService {
     return this.importFromPath(selection.filePaths[0], safeKind)
   }
 
+  async importFiles(window: BrowserWindow, kind: MediaKind): Promise<ImportedMedia[]> {
+    const safeKind = mediaKindSchema.parse(kind)
+    const { dialog } = await import('electron')
+    const selection = await dialog.showOpenDialog(window, {
+      title: `Import ${safeKind}s`,
+      buttonLabel: 'Copy into workspace',
+      properties: ['openFile', 'multiSelections'],
+      filters: pickerFilter(safeKind)
+    })
+    if (selection.canceled || selection.filePaths.length === 0) return []
+
+    const imported: ImportedMedia[] = []
+    let failed = 0
+    for (const filePath of selection.filePaths) {
+      try {
+        imported.push(await this.importFromPath(filePath, safeKind))
+      } catch {
+        failed += 1
+      }
+    }
+    if (failed > 0 && imported.length === 0) {
+      throw new Error(`CanvasNote could not import any of the selected ${safeKind}s.`)
+    }
+    return imported
+  }
+
   async importFromPath(sourcePath: string, kind: MediaKind): Promise<ImportedMedia> {
     const safeKind = mediaKindSchema.parse(kind)
     if (!path.isAbsolute(sourcePath)) throw new Error('The selected file path is invalid.')

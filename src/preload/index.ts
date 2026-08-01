@@ -182,6 +182,10 @@ const api: CanvasNoteApi = {
       ipcRenderer.invoke(IPC_CHANNELS.mediaImport, {
         kind: mediaKind(kind)
       }) as Promise<ImportedMedia | null>,
+    importFiles: (kind) =>
+      ipcRenderer.invoke(IPC_CHANNELS.mediaImportMany, {
+        kind: mediaKind(kind)
+      }) as Promise<ImportedMedia[]>,
     importImageData: (filename, data) => {
       if (!filename || filename.length > 255) throw new Error('Invalid image filename.')
       if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMAGE_TRANSFER_BYTES) {

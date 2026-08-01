@@ -1185,10 +1185,18 @@ export function BoardEditor({
       if (!editor || importing) return
       setImporting(kind)
       try {
-        const media = await window.canvasNote.media.importFile(kind)
-        if (media) placeImportedMedia(media, kind)
+        const mediaList = await window.canvasNote.media.importFiles(kind)
+        if (mediaList.length === 0) return
+        mediaList.forEach((media) => placeImportedMedia(media, kind))
+        setNotice(
+          mediaList.length === 1
+            ? `${kind === 'video' ? 'Video' : kind === 'image' ? 'Image' : 'File'} added.`
+            : `${mediaList.length} ${
+                kind === 'video' ? 'videos' : kind === 'image' ? 'images' : 'files'
+              } added.`
+        )
       } catch {
-        setNotice(`CanvasNote could not import that ${kind}.`)
+        setNotice(`CanvasNote could not import those ${kind}s.`)
       } finally {
         setImporting(null)
       }
@@ -1196,25 +1204,36 @@ export function BoardEditor({
     [editor, importing, placeImportedMedia]
   )
 
-  const importImageData = useCallback(
-    async (file: File, dropPoint?: { x: number; y: number }): Promise<void> => {
-      if (!editor || importing) return
-      const filename = imageImportFilename(file)
-      if (!filename) {
-        setNotice('CanvasNote supports dropped or pasted JPG, PNG, WebP, and GIF images.')
-        return
-      }
-      if (file.size <= 0 || file.size > MAX_IMAGE_TRANSFER_BYTES) {
-        setNotice('Dropped or pasted images must be no larger than 25 MB.')
+  const importImageFiles = useCallback(
+    async (files: File[], dropPoint?: { x: number; y: number }): Promise<void> => {
+      if (!editor || importing || files.length === 0) return
+      let invalidReason: string | null = null
+      const valid = files.filter((file) => {
+        if (!imageImportFilename(file)) {
+          invalidReason ??= 'CanvasNote supports dropped or pasted JPG, PNG, WebP, and GIF images.'
+          return false
+        }
+        if (file.size <= 0 || file.size > MAX_IMAGE_TRANSFER_BYTES) {
+          invalidReason ??= 'Dropped or pasted images must be no larger than 25 MB.'
+          return false
+        }
+        return true
+      })
+      if (valid.length === 0) {
+        if (invalidReason) setNotice(invalidReason)
         return
       }
       setImporting('image')
       try {
-        const data = new Uint8Array(await file.arrayBuffer())
-        const media = await window.canvasNote.media.importImageData(filename, data)
-        placeImportedMedia(media, 'image', dropPoint)
+        for (const [index, file] of valid.entries()) {
+          const filename = imageImportFilename(file)
+          if (!filename) continue
+          const data = new Uint8Array(await file.arrayBuffer())
+          const media = await window.canvasNote.media.importImageData(filename, data)
+          placeImportedMedia(media, 'image', index === 0 ? dropPoint : undefined)
+        }
       } catch {
-        setNotice('CanvasNote could not import that image.')
+        setNotice('CanvasNote could not import those images.')
       } finally {
         setImporting(null)
       }
@@ -1226,15 +1245,15 @@ export function BoardEditor({
     if (!editor) return
     const pasteImage = (event: ClipboardEvent): void => {
       if (isEditableTarget(event.target)) return
-      const file = Array.from(event.clipboardData?.files ?? []).find(imageImportFilename)
-      if (!file) return
+      const files = Array.from(event.clipboardData?.files ?? []).filter(imageImportFilename)
+      if (files.length === 0) return
       event.preventDefault()
       event.stopImmediatePropagation()
-      void importImageData(file)
+      void importImageFiles(files)
     }
     document.addEventListener('paste', pasteImage, true)
     return () => document.removeEventListener('paste', pasteImage, true)
-  }, [editor, importImageData])
+  }, [editor, importImageFiles])
 
   const addEmbeddedVideo = useCallback(() => {
     if (!editor) return
@@ -2082,12 +2101,12 @@ export function BoardEditor({
             }
           }}
           onDropCapture={(event) => {
-            const file = Array.from(event.dataTransfer.files).find(imageImportFilename)
-            if (!file || !editor) return
+            const files = Array.from(event.dataTransfer.files).filter(imageImportFilename)
+            if (files.length === 0 || !editor) return
             event.preventDefault()
             event.stopPropagation()
             const point = editor.screenToPage({ x: event.clientX, y: event.clientY })
-            void importImageData(file, point)
+            void importImageFiles(files, point)
           }}
         >
           <BreakPointProvider>

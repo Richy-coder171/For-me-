@@ -243,6 +243,11 @@ export function registerHandlers(
     const { kind } = mediaImportRequestSchema.parse(input)
     return media.importFile(window, kind)
   })
+  ipcMain.handle(IPC_CHANNELS.mediaImportMany, (event, input: unknown) => {
+    const window = senderWindow(event)
+    const { kind } = mediaImportRequestSchema.parse(input)
+    return media.importFiles(window, kind)
+  })
   ipcMain.handle(IPC_CHANNELS.mediaImportImageData, (event, input: unknown) => {
     senderWindow(event)
     const request = imageDataImportRequestSchema.parse(input)
