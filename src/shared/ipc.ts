@@ -33,6 +33,7 @@ export const IPC_CHANNELS = {
   boardRestore: 'board:restore',
   boardDelete: 'board:delete',
   mediaImport: 'media:import',
+  mediaImportMany: 'media:import-many',
   mediaImportImageData: 'media:import-image-data',
   mediaExists: 'media:exists',
   mediaOpen: 'media:open',
@@ -79,6 +80,7 @@ export interface CanvasNoteApi {
   }
   media: {
     importFile: (kind: MediaKind) => Promise<ImportedMedia | null>
+    importFiles: (kind: MediaKind) => Promise<ImportedMedia[]>
     importImageData: (filename: string, data: Uint8Array) => Promise<ImportedMedia>
     toUrl: (relativePath: string) => string
     exists: (relativePath: string) => Promise<boolean>

@@ -78,6 +78,7 @@ function installApi(
     },
     media: {
       importFile: unused,
+      importFiles: unused,
       importImageData: unused,
       toUrl: vi.fn((path) => `canvasnote-media://${path}`),
       exists: vi.fn(async () => true),

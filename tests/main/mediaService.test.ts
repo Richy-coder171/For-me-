@@ -27,10 +27,11 @@ const MEDIA_HEADERS = [
 
 const electron = vi.hoisted(() => ({
   openPath: vi.fn(async () => ''),
-  showItemInFolder: vi.fn()
+  showItemInFolder: vi.fn(),
+  showOpenDialog: vi.fn()
 }))
 
-vi.mock('electron', () => ({ shell: electron }))
+vi.mock('electron', () => ({ shell: electron, dialog: { showOpenDialog: electron.showOpenDialog } }))
 
 describe('MediaService', () => {
   let workspaceRoot: string
@@ -69,6 +70,41 @@ describe('MediaService', () => {
     expect(imported.relativePath).toMatch(/^media\/images\/media-[\w-]+\.png$/)
     expect(imported.url).toBe(`canvasnote-media://workspace/${imported.relativePath}`)
     expect(await readFile(resolved)).toEqual(pngHeader)
+  })
+
+  it('imports every file chosen in a multi-selection dialog', async () => {
+    const firstPath = path.join(sourceRoot, 'one.PNG')
+    const secondPath = path.join(sourceRoot, 'two.jpg')
+    await Promise.all([
+      writeFile(firstPath, MEDIA_HEADERS[0][2]),
+      writeFile(secondPath, MEDIA_HEADERS[1][2])
+    ])
+    electron.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [firstPath, secondPath]
+    })
+
+    const imported = await service.importFiles({} as never, 'image')
+
+    expect(imported).toHaveLength(2)
+    expect(imported.map((item) => item.filename).sort()).toEqual(['one.PNG', 'two.jpg'])
+    expect(electron.showOpenDialog).toHaveBeenCalledOnce()
+  })
+
+  it('returns no files when the multi-selection dialog is canceled', async () => {
+    electron.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+
+    await expect(service.importFiles({} as never, 'image')).resolves.toEqual([])
+  })
+
+  it('throws when every selected file fails to import', async () => {
+    const badPath = path.join(sourceRoot, 'bad.png')
+    await writeFile(badPath, Buffer.from([0xff, 0xd8, 0xff, 0xe0]))
+    electron.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [badPath] })
+
+    await expect(service.importFiles({} as never, 'image')).rejects.toThrow(
+      /could not import any of the selected images/
+    )
   })
 
   it('validates and stores an image transferred from paste or drop', async () => {
